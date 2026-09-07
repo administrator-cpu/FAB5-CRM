@@ -15,6 +15,9 @@ const buildBillingTimeline = (connection) => {
     if (['APPROVED', 'RATE_REVISION_APPROVED'].includes(action) && pendingTransaction) {
       pendingTransaction.approvedOn = log.date;
     }
+    if (['CANCELLED', 'REJECTED'].includes(action)) {
+      pendingTransaction = null;
+    }
 
     if (action === 'ACTIVATED') {
       const liveBandwidth = log.bandwidth || connection.bandwidth;
