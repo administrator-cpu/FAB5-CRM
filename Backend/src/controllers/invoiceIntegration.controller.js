@@ -130,22 +130,36 @@ const getConnectionBillingHistory = asyncHandler(async (req, res, next) => {
   const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
   const fullTimeline = buildBillingTimeline(connection);
-
   const currentState = fullTimeline.pop();
 
   const recentEvents = fullTimeline.filter(event => {
-    const eventDate = new Date(
-      event.activatedOn ||
-      event.retainedOn ||
-      event.raisedOn
-    );
-    return eventDate >= firstOfLastMonth;
+    const isRecentActivation = event.activatedOn && new Date(event.activatedOn) >= firstOfLastMonth;
+    const isRecentRetained = event.retainedOn && new Date(event.retainedOn) >= firstOfLastMonth;
+    const isRecentRaise = event.raisedOn && new Date(event.raisedOn) >= firstOfLastMonth;
+
+    let isRecentFinal = false;
+    if (event.type === 'NOTICE_PERIOD') {
+      const effectiveEndDate = event._resolvedOn || event.finalDate;
+      isRecentFinal = effectiveEndDate && new Date(effectiveEndDate) >= firstOfLastMonth;
+    } else {
+      isRecentFinal = event.finalDate && new Date(event.finalDate) >= firstOfLastMonth;
+    }
+
+    return isRecentActivation || isRecentRetained || isRecentRaise || isRecentFinal;
+  });
+
+  const cleanedEvents = recentEvents.map(event => {
+    if (event._resolvedOn !== undefined) {
+      const cleanEvent = { ...event };
+      delete cleanEvent._resolvedOn;
+      return cleanEvent;
+    }
+    return event;
   });
 
   let billingResponse = [];
-
-  if (recentEvents.length > 0) {
-    billingResponse = [...recentEvents, currentState];
+  if (cleanedEvents.length > 0) {
+    billingResponse = [...cleanedEvents, currentState];
   } else {
     billingResponse = [currentState];
   }
