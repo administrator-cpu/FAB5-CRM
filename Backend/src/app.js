@@ -19,6 +19,7 @@ const connectionRoutes = require("./routes/connectionRoutes");
 const integrationRoutes = require("./routes/integration.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const InternalRoutes = require("./routes/internalBi.routes");
+const salesTargetRoutes = require("./routes/salesTarget.routes");
 
 const app = express();
 const server = http.createServer(app);
@@ -127,6 +128,7 @@ app.use("/api/customers", customerRoutes);
 app.use("/api/crm", integrationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/internal", InternalRoutes);
+app.use("/api/sales-targets", salesTargetRoutes);
 
 // ──────────────── Health Check Endpoint ─────────────────────────────
 app.get("/health", (req, res) => {

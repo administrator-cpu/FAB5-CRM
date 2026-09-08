@@ -366,6 +366,51 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     return sortedData;
   }, [allData, isProjectManager]);
 
+  // Bandwidth "sold" events (used to drive the Sales vs Target chart) — one
+  // entry per connection at its first ACTIVATED date, tagged with the
+  // employee (createdBy) who booked it.
+  const salesTargetAnalytics = useMemo(() => {
+    const allConnections = isProjectManager ? pmData : (allData?.connections || []);
+    const customersById = new Map((allData?.customers || []).map((c) => [String(c._id), c]));
+    const connections = (allConnections || []).filter((c) => isCountableConnection(c, customersById));
+
+    const events = [];
+    connections.forEach((conn) => {
+      const { bandwidth } = getTrueCommercials(conn);
+      let firstActivationDate = null;
+
+      (conn.history || []).forEach((h) => {
+        if (h.action !== 'ACTIVATED' || !h.date) return;
+        const d = new Date(h.date);
+        if (isNaN(d.getTime())) return;
+        if (!firstActivationDate || d < firstActivationDate) firstActivationDate = d;
+      });
+
+      if (firstActivationDate && bandwidth) {
+        const createdBy = conn.createdBy;
+        events.push({
+          date: firstActivationDate,
+          bandwidth: Number(bandwidth) || 0,
+          employeeId: createdBy?._id ? String(createdBy._id) : (createdBy ? String(createdBy) : 'unknown'),
+          employeeName: createdBy?.name || 'Unassigned',
+        });
+      }
+    });
+
+    // Employee roster for the "by employee" view / target-setting modal.
+    // Admins get the full roster; everyone else only sees themselves.
+    let employees = [];
+    if (allData?.users) {
+      employees = allData.users
+        .filter((u) => u.role === 'employee' || u.role === 'admin')
+        .map((u) => ({ id: String(u._id || u.id), name: u.name, email: u.email }));
+    } else if (user) {
+      employees = [{ id: String(user._id || user.id), name: user.name, email: user.email }];
+    }
+
+    return { events, employees };
+  }, [allData, pmData, isProjectManager, user]);
+
   return {
     summary,
     growthAnalytics,
@@ -375,6 +420,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     atRiskAnalytics,
     churnAnalytics,
     productAnalytics,
+    salesTargetAnalytics,
     fetchOverview,
     overview,
     setOverview,

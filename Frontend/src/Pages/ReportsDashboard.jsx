@@ -16,6 +16,10 @@ import TopAccountsList from '../Components/ReportsDashboard/Lists/TopAccountsLis
 import CollectionsOverview from '../Components/ReportsDashboard/CollectionsOverview';
 import ServiceTypeChart from '../Components/ReportsDashboard/Charts/ServiceTypeChart';
 import RevenueVsChurnChart from '../Components/ReportsDashboard/Charts/RevenueVsChurnChart';
+import SalesVsTargetChart from '../Components/ReportsDashboard/Charts/SalesVsTargetChart';
+import KPISummaryStrip from '../Components/ReportsDashboard/KPISummaryStrip';
+import AlertsRiskCenter from '../Components/ReportsDashboard/AlertsRiskCenter';
+import { useSalesAchievement } from '../Components/ReportsDashboard/useSalesAchievement';
 import { useDashboard } from '../Context/DashboardContext';
 
 const ReportsDashboard = () => {
@@ -41,9 +45,12 @@ const ReportsDashboard = () => {
     atRiskAnalytics, 
     churnAnalytics, 
     productAnalytics,
+    salesTargetAnalytics,
     fetchOverview, 
     overview 
   } = useDashboardAnalytics({ allData, pmData, isProjectManager, timeRange });
+
+  const salesAchievement = useSalesAchievement(salesTargetAnalytics.events, salesTargetAnalytics.employees);
 
   // console.log(overview)
 
@@ -103,6 +110,10 @@ const ReportsDashboard = () => {
       <div className="max-w-7xl mx-auto flex flex-col gap-8">
         <Header />
 
+        {(isAdmin || isEmployee) && (
+          <KPISummaryStrip summary={summary} overview={overview} salesAchievement={salesAchievement} />
+        )}
+
         {/* TOP ROW */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 flex flex-col h-full hover:shadow-md transition-shadow">
@@ -150,6 +161,15 @@ const ReportsDashboard = () => {
                 <GeoPenetrationChart data={geoAnalytics} />
               )}
             </div>
+
+            {!isProjectManager && (
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                <SalesVsTargetChart
+                  events={salesTargetAnalytics.events}
+                  employees={salesTargetAnalytics.employees}
+                />
+              </div>
+            )}
 
             {/* BOTTOM ROW: Reusable StatCards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -204,6 +224,14 @@ const ReportsDashboard = () => {
                 </>
               )}
             </div>
+
+            {!isProjectManager && (
+              <AlertsRiskCenter
+                atRiskAnalytics={atRiskAnalytics}
+                overview={overview}
+                salesAchievement={salesAchievement}
+              />
+            )}
 
             {/* 3. Pass the fetched overview data down to your collections component */}
               <CollectionsOverview apiData={overview} />
