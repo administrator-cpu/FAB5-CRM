@@ -33,7 +33,7 @@ function Hero() {
             </div>
             <div className="flex gap-4 absolute bottom-3 text-stone-600 text-xs">
                 <div className="">Powerd by : {`<Div/>`}</div>
-                <div className="">© Development Innovation Vector Private Limited. All Rights Reserved {`</>`} </div>
+                <div className="">© DIV Private Limited. All Rights Reserved {`</>`} </div>
             </div>
             </div>
                 <div className=" shadow-2xl absolute bottom-0 border-t border-l p-2 right-0 w-[30%] h-[50%] rounded-tl-[200px] border-[#b4b4b438]"></div>
