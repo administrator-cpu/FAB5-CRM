@@ -374,35 +374,36 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     const customersById = new Map((allData?.customers || []).map((c) => [String(c._id), c]));
     const connections = (allConnections || []).filter((c) => isCountableConnection(c, customersById));
 
+    // A "sale" is counted the moment the connection is created — not when
+    // (or whether) it's later activated — and regardless of its current
+    // status (active, notice period, disconnected, ...). This is the sales
+    // team's booking credit, deliberately independent of live infra state.
     const events = [];
     connections.forEach((conn) => {
+      if (!conn.createdAt) return;
+      const date = new Date(conn.createdAt);
+      if (isNaN(date.getTime())) return;
+
       const { bandwidth } = getTrueCommercials(conn);
-      let firstActivationDate = null;
+      if (!bandwidth) return;
 
-      (conn.history || []).forEach((h) => {
-        if (h.action !== 'ACTIVATED' || !h.date) return;
-        const d = new Date(h.date);
-        if (isNaN(d.getTime())) return;
-        if (!firstActivationDate || d < firstActivationDate) firstActivationDate = d;
+      const createdBy = conn.createdBy;
+      events.push({
+        date,
+        bandwidth: Number(bandwidth) || 0,
+        employeeId: createdBy?._id ? String(createdBy._id) : (createdBy ? String(createdBy) : 'unknown'),
+        employeeName: createdBy?.name || 'Unassigned',
       });
-
-      if (firstActivationDate && bandwidth) {
-        const createdBy = conn.createdBy;
-        events.push({
-          date: firstActivationDate,
-          bandwidth: Number(bandwidth) || 0,
-          employeeId: createdBy?._id ? String(createdBy._id) : (createdBy ? String(createdBy) : 'unknown'),
-          employeeName: createdBy?.name || 'Unassigned',
-        });
-      }
     });
 
     // Employee roster for the "by employee" view / target-setting modal.
-    // Admins get the full roster; everyone else only sees themselves.
+    // Admins get the full roster (active employees/admins only — a
+    // deactivated user shouldn't be assignable a new target); everyone
+    // else only sees themselves.
     let employees = [];
     if (allData?.users) {
       employees = allData.users
-        .filter((u) => u.role === 'employee' || u.role === 'admin')
+        .filter((u) => (u.role === 'employee' || u.role === 'admin') && u.isActive !== false)
         .map((u) => ({ id: String(u._id || u.id), name: u.name, email: u.email }));
     } else if (user) {
       employees = [{ id: String(user._id || user.id), name: user.name, email: user.email }];

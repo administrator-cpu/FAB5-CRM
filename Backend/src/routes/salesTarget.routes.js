@@ -2,8 +2,8 @@ const express = require("express");
 const {
   getAllTargets,
   getEmployeeTargets,
-  setWeeklyTarget,
-  deleteWeeklyTarget,
+  setMonthlyTarget,
+  deleteMonthlyTarget,
 } = require("../controllers/salesTarget.controller");
 const { protect, authorize } = require("../middlewares/authMiddleware");
 const ROLES = require("../constants/roles");
@@ -18,7 +18,7 @@ router.get("/", getAllTargets);
 router.get("/:employeeId", getEmployeeTargets);
 
 // Only admins can set or remove targets.
-router.put("/", authorize(ROLES.ADMIN), setWeeklyTarget);
-router.delete("/", authorize(ROLES.ADMIN), deleteWeeklyTarget);
+router.put("/", authorize(ROLES.ADMIN), setMonthlyTarget);
+router.delete("/", authorize(ROLES.ADMIN), deleteMonthlyTarget);
 
 module.exports = router;

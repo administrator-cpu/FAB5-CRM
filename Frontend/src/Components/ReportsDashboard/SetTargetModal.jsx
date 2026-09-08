@@ -1,20 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { X, Target, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
-import targetService, { getWeekStartISO } from '../../Services/targetService';
+import targetService, { getMonthStartISO } from '../../Services/targetService';
 
-// Formats a Monday ISO date into "16 – 22 Jun '26" for the picker label
-const formatWeekRange = (weekStartISO) => {
-  const start = new Date(weekStartISO);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  const opts = { day: '2-digit', month: 'short' };
-  return `${start.toLocaleDateString('en-GB', opts)} – ${end.toLocaleDateString('en-GB', opts)} '${String(start.getFullYear()).slice(-2)}`;
-};
+const formatMonthLabel = (monthStartISO) =>
+  new Date(monthStartISO).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
 const SetTargetModal = ({ employees = [], onClose, onSaved }) => {
   const [employeeId, setEmployeeId] = useState(employees[0]?.id || '');
-  const [weekStart, setWeekStart] = useState(getWeekStartISO());
+  const [monthStart, setMonthStart] = useState(getMonthStartISO());
   const [targetMbps, setTargetMbps] = useState('');
   const [saving, setSaving] = useState(false);
   const [existing, setExisting] = useState({});
@@ -23,9 +17,9 @@ const SetTargetModal = ({ employees = [], onClose, onSaved }) => {
     if (!employeeId) return;
     targetService.getEmployeeTargets(employeeId).then((data) => {
       setExisting(data || {});
-      setTargetMbps(data?.[weekStart] ?? '');
+      setTargetMbps(data?.[monthStart] ?? '');
     });
-  }, [employeeId, weekStart]);
+  }, [employeeId, monthStart]);
 
   const handleSave = async () => {
     if (!employeeId) return toast.error('Select an employee first.');
@@ -34,8 +28,8 @@ const SetTargetModal = ({ employees = [], onClose, onSaved }) => {
     }
     setSaving(true);
     try {
-      await targetService.setWeeklyTarget({ employeeId, weekStart, targetMbps });
-      toast.success('Weekly target saved.');
+      await targetService.setMonthlyTarget({ employeeId, monthStart, targetMbps });
+      toast.success('Monthly target saved.');
       onSaved?.();
       onClose();
     } catch {
@@ -51,9 +45,9 @@ const SetTargetModal = ({ employees = [], onClose, onSaved }) => {
         <div className="flex items-start justify-between mb-5">
           <div>
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <Target size={20} className="text-indigo-600" /> Set Weekly Target
+              <Target size={20} className="text-indigo-600" /> Set Monthly Target
             </h3>
-            <p className="text-sm text-slate-500 mt-1">Bandwidth (Mbps) target for the selected employee &amp; week.</p>
+            <p className="text-sm text-slate-500 mt-1">Bandwidth (Mbps) target for the selected employee &amp; month.</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
             <X size={20} />
@@ -76,14 +70,14 @@ const SetTargetModal = ({ employees = [], onClose, onSaved }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Week</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Month</label>
             <input
-              type="date"
-              value={weekStart}
-              onChange={(e) => setWeekStart(getWeekStartISO(e.target.value))}
+              type="month"
+              value={monthStart.slice(0, 7)}
+              onChange={(e) => setMonthStart(getMonthStartISO(`${e.target.value}-01`))}
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
-            <p className="text-xs text-slate-400 mt-1">Applies to {formatWeekRange(weekStart)} (Mon–Sun)</p>
+            <p className="text-xs text-slate-400 mt-1">Applies to {formatMonthLabel(monthStart)}</p>
           </div>
 
           <div>
@@ -96,10 +90,14 @@ const SetTargetModal = ({ employees = [], onClose, onSaved }) => {
               placeholder="e.g. 500"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
-            {existing[weekStart] != null && (
-              <p className="text-xs text-slate-400 mt-1">Current target for this week: {existing[weekStart]} Mbps</p>
+            {existing[monthStart] != null && (
+              <p className="text-xs text-slate-400 mt-1">Current target for this month: {existing[monthStart]} Mbps</p>
             )}
           </div>
+
+          <p className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+            If you don't set a target for a future month, it will keep using this employee's most recently set target.
+          </p>
         </div>
 
         <div className="flex gap-3 mt-6">

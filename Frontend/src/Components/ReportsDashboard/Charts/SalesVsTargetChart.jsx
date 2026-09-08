@@ -5,20 +5,24 @@ import {
   Tooltip as RechartsTooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import { useAuth } from '../../../Context/AuthContext';
-import targetService, { getWeekStartISO } from '../../../Services/targetService';
+import targetService, { getMonthStartISO, resolveMonthlyTarget } from '../../../Services/targetService';
 import { formatBandwidth } from '../../Utils/formatters';
 import SetTargetModal from '../SetTargetModal';
 
 const GRAINS = ['daily', 'weekly', 'monthly', 'yearly'];
 const PERIOD_COUNT = { daily: 14, weekly: 8, monthly: 6, yearly: 4 };
+const AVG_WEEKS_PER_MONTH = 4.345;
 
 const monthLabel = (date) => date.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }).replace(' ', " '");
 const dayLabel = (date) => date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-const weekLabel = (mondayISO) => `Wk ${new Date(mondayISO).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`;
+const weekLabel = (mondayDate) => `Wk ${mondayDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`;
 
 const endOfDay = (d) => { const e = new Date(d); e.setHours(23, 59, 59, 999); return e; };
+const daysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
 
-// Builds the list of periods to plot, ending "today", oldest first
+// Builds the list of periods to plot, ending "today", oldest first.
+// Every period also carries `monthKey` — the monthStartISO its target
+// should be resolved from (with carry-forward applied at read time).
 const buildPeriods = (grain) => {
   const count = PERIOD_COUNT[grain];
   const periods = [];
@@ -27,44 +31,72 @@ const buildPeriods = (grain) => {
   if (grain === 'daily') {
     for (let i = count - 1; i >= 0; i--) {
       const start = new Date(now); start.setDate(now.getDate() - i); start.setHours(0, 0, 0, 0);
-      periods.push({ key: start.toISOString().slice(0, 10), label: dayLabel(start), start, end: endOfDay(start) });
+      periods.push({
+        key: start.toISOString().slice(0, 10),
+        label: dayLabel(start),
+        start,
+        end: endOfDay(start),
+        monthKey: getMonthStartISO(start),
+        share: 1 / daysInMonth(start.getFullYear(), start.getMonth()),
+      });
     }
   } else if (grain === 'weekly') {
-    const thisMonday = new Date(getWeekStartISO(now));
+    const dow = now.getDay();
+    const thisMonday = new Date(now); thisMonday.setDate(now.getDate() - ((dow === 0 ? -6 : 1) - dow)); thisMonday.setHours(0, 0, 0, 0);
     for (let i = count - 1; i >= 0; i--) {
       const start = new Date(thisMonday); start.setDate(thisMonday.getDate() - i * 7);
       const end = new Date(start); end.setDate(start.getDate() + 6);
-      const key = start.toISOString().slice(0, 10);
-      periods.push({ key, label: weekLabel(key), start, end: endOfDay(end) });
+      periods.push({
+        key: start.toISOString().slice(0, 10),
+        label: weekLabel(start),
+        start,
+        end: endOfDay(end),
+        monthKey: getMonthStartISO(start),
+        share: 1 / AVG_WEEKS_PER_MONTH,
+      });
     }
   } else if (grain === 'monthly') {
     for (let i = count - 1; i >= 0; i--) {
       const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-      periods.push({ key: `${start.getFullYear()}-${start.getMonth()}`, label: monthLabel(start), start, end: endOfDay(end) });
+      periods.push({
+        key: `${start.getFullYear()}-${start.getMonth()}`,
+        label: monthLabel(start),
+        start,
+        end: endOfDay(end),
+        monthKey: getMonthStartISO(start),
+        share: 1,
+      });
     }
   } else {
     for (let i = count - 1; i >= 0; i--) {
       const y = now.getFullYear() - i;
-      periods.push({ key: String(y), label: String(y), start: new Date(y, 0, 1), end: endOfDay(new Date(y, 11, 31)) });
+      periods.push({
+        key: String(y),
+        label: String(y),
+        start: new Date(y, 0, 1),
+        end: endOfDay(new Date(y, 11, 31)),
+        year: y,
+      });
     }
   }
   return periods;
 };
 
-// Resolves the bandwidth target for one period out of an employee's { weekStartISO: mbps } map
-const getTargetForPeriod = (weeklyTargetsMap, grain, period) => {
-  const map = weeklyTargetsMap || {};
-  if (grain === 'weekly') return Number(map[period.key]) || 0;
-  if (grain === 'daily') return (Number(map[getWeekStartISO(period.start)]) || 0) / 7;
-
-  // monthly / yearly: sum every week whose Monday falls inside the period
-  let total = 0;
-  Object.entries(map).forEach(([weekStartISO, mbps]) => {
-    const monday = new Date(weekStartISO);
-    if (monday >= period.start && monday <= period.end) total += Number(mbps) || 0;
-  });
-  return total;
+// Resolves the target for one period out of an employee's monthly targets map.
+const getTargetForPeriod = (monthlyTargetsMap, grain, period) => {
+  if (grain === 'yearly') {
+    // Sum the (carried-forward) target of every calendar month in that year
+    let total = 0;
+    for (let m = 0; m < 12; m++) {
+      total += resolveMonthlyTarget(monthlyTargetsMap, getMonthStartISO(new Date(period.year, m, 1)));
+    }
+    return total;
+  }
+  // daily / weekly / monthly all resolve from the month the period sits in,
+  // scaled by that period's share of the month (1 for monthly itself).
+  const monthlyValue = resolveMonthlyTarget(monthlyTargetsMap, period.monthKey);
+  return monthlyValue * period.share;
 };
 
 const SalesVsTargetChart = ({ events = [], employees = [] }) => {
@@ -121,7 +153,9 @@ const SalesVsTargetChart = ({ events = [], employees = [] }) => {
             <TrendingUp size={22} className="text-indigo-600" />
             Sales vs Target
           </h3>
-          <p className="text-sm text-slate-500 mt-1">Bandwidth sold (Mbps) against the weekly target.</p>
+          <p className="text-sm text-slate-500 mt-1">
+            {/* Bandwidth (Mbps) of every connection created in the period, against the monthly target — counted whether or not it's still active today. */}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -163,7 +197,7 @@ const SalesVsTargetChart = ({ events = [], employees = [] }) => {
 
       {!hasAnyTarget && (
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-4">
-          No targets set for this range yet.{isAdmin ? ' Use "Set Target" to add one.' : ' Ask your admin to set a weekly target.'}
+          No targets set for this range yet.{isAdmin ? ' Use "Set Target" to add one.' : ' Ask your admin to set a monthly target.'}
         </div>
       )}
 

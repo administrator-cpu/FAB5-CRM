@@ -4,28 +4,23 @@ const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
 const ROLES = require("../constants/roles");
 
-// Normalizes any date to the Monday 00:00:00 of its week (UTC-safe enough
-// for weekly bucketing — mirrors the frontend's getWeekStartISO()).
-const toWeekStart = (dateInput) => {
+// Normalizes any date to the 1st 00:00:00 of its month.
+const toMonthStart = (dateInput) => {
   const d = new Date(dateInput);
   if (isNaN(d.getTime())) return null;
-  const day = d.getDay();
-  const diff = (day === 0 ? -6 : 1) - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return new Date(d.getFullYear(), d.getMonth(), 1);
 };
 
 const isoDate = (d) => new Date(d).toISOString().slice(0, 10);
 
-// Reshapes a flat list of target docs into { [employeeId]: { [weekStartISO]: targetMbps } }
+// Reshapes a flat list of target docs into { [employeeId]: { [monthStartISO]: targetMbps } }
 // — the exact shape the frontend's targetService already expects.
 const groupByEmployee = (targets) => {
   const grouped = {};
   targets.forEach((t) => {
     const empId = String(t.employee?._id || t.employee);
     if (!grouped[empId]) grouped[empId] = {};
-    grouped[empId][isoDate(t.weekStart)] = t.targetMbps;
+    grouped[empId][isoDate(t.monthStart)] = t.targetMbps;
   });
   return grouped;
 };
@@ -49,54 +44,57 @@ const getEmployeeTargets = asyncHandler(async (req, res, next) => {
 
   const targets = await SalesTarget.find({ employee: employeeId }).lean();
   const map = {};
-  targets.forEach((t) => { map[isoDate(t.weekStart)] = t.targetMbps; });
+  targets.forEach((t) => { map[isoDate(t.monthStart)] = t.targetMbps; });
 
   res.status(200).json({ success: true, data: map });
 });
 
-// PUT /api/sales-targets  { employeeId, weekStart, targetMbps }
-// Admin only. Upserts — setting a target for a week that already has one overwrites it.
-const setWeeklyTarget = asyncHandler(async (req, res, next) => {
-  const { employeeId, weekStart, targetMbps } = req.body;
+// PUT /api/sales-targets  { employeeId, monthStart, targetMbps }
+// Admin only. Upserts — setting a target for a month that already has one overwrites it.
+const setMonthlyTarget = asyncHandler(async (req, res, next) => {
+  const { employeeId, monthStart, targetMbps } = req.body;
 
-  if (!employeeId || !weekStart || targetMbps === undefined || targetMbps === null) {
-    return next(new AppError("employeeId, weekStart and targetMbps are required", 400));
+  if (!employeeId || !monthStart || targetMbps === undefined || targetMbps === null) {
+    return next(new AppError("employeeId, monthStart and targetMbps are required", 400));
   }
   if (isNaN(Number(targetMbps)) || Number(targetMbps) < 0) {
     return next(new AppError("targetMbps must be a non-negative number", 400));
   }
 
-  const employee = await User.findById(employeeId).select("_id role");
+  const employee = await User.findById(employeeId).select("_id role isActive");
   if (!employee) return next(new AppError("Employee not found", 404));
+  if (employee.isActive === false) {
+    return next(new AppError("Cannot set a target for a deactivated employee", 400));
+  }
 
-  const normalizedWeekStart = toWeekStart(weekStart);
-  if (!normalizedWeekStart) return next(new AppError("Invalid weekStart date", 400));
+  const normalizedMonthStart = toMonthStart(monthStart);
+  if (!normalizedMonthStart) return next(new AppError("Invalid monthStart date", 400));
 
   const target = await SalesTarget.findOneAndUpdate(
-    { employee: employeeId, weekStart: normalizedWeekStart },
+    { employee: employeeId, monthStart: normalizedMonthStart },
     { targetMbps: Number(targetMbps), setBy: req.user._id },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
   res.status(200).json({
     success: true,
-    message: "Weekly target saved",
-    data: { employeeId, weekStart: isoDate(target.weekStart), targetMbps: target.targetMbps },
+    message: "Monthly target saved",
+    data: { employeeId, monthStart: isoDate(target.monthStart), targetMbps: target.targetMbps },
   });
 });
 
-// DELETE /api/sales-targets  { employeeId, weekStart }
+// DELETE /api/sales-targets  { employeeId, monthStart }
 // Admin only.
-const deleteWeeklyTarget = asyncHandler(async (req, res, next) => {
-  const { employeeId, weekStart } = req.body;
-  if (!employeeId || !weekStart) {
-    return next(new AppError("employeeId and weekStart are required", 400));
+const deleteMonthlyTarget = asyncHandler(async (req, res, next) => {
+  const { employeeId, monthStart } = req.body;
+  if (!employeeId || !monthStart) {
+    return next(new AppError("employeeId and monthStart are required", 400));
   }
 
-  const normalizedWeekStart = toWeekStart(weekStart);
-  await SalesTarget.deleteOne({ employee: employeeId, weekStart: normalizedWeekStart });
+  const normalizedMonthStart = toMonthStart(monthStart);
+  await SalesTarget.deleteOne({ employee: employeeId, monthStart: normalizedMonthStart });
 
   res.status(200).json({ success: true, message: "Target removed" });
 });
 
-module.exports = { getAllTargets, getEmployeeTargets, setWeeklyTarget, deleteWeeklyTarget };
+module.exports = { getAllTargets, getEmployeeTargets, setMonthlyTarget, deleteMonthlyTarget };
