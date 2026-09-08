@@ -154,7 +154,7 @@ const SalesVsTargetChart = ({ events = [], employees = [] }) => {
             Sales vs Target
           </h3>
           <p className="text-sm text-slate-500 mt-1">
-            Bandwidth (Mbps) of every connection created in the period, against the monthly target — counted whether or not it's still active today.
+            {/* Bandwidth (Mbps) of every connection created in the period, against the monthly target — counted whether or not it's still active today. */}
           </p>
         </div>
 
