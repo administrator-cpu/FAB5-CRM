@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import targetService from '../../Services/targetService';
+import targetService, { getMonthStartISO, resolveMonthlyTarget } from '../../Services/targetService';
 
-// Current month's Actual (bandwidth sold) vs Target (sum of employees' weekly
-// targets for weeks whose Monday falls in this month). Shared by the KPI
-// strip and the Alerts & Risk Center so both agree on the same number.
+// Current month's Actual (bandwidth of connections created this month) vs
+// Target (sum of employees' monthly targets, carrying forward the last
+// value an admin set for any employee who has no explicit target this
+// month). Shared by the KPI strip and the Alerts & Risk Center so both
+// agree on the same number.
 export const useSalesAchievement = (events = [], employees = []) => {
   const [allTargets, setAllTargets] = useState({});
 
@@ -18,19 +20,15 @@ export const useSalesAchievement = (events = [], employees = []) => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const monthKey = getMonthStartISO(now);
 
     const actual = events
       .filter((e) => e.date >= monthStart && e.date <= monthEnd)
       .reduce((sum, e) => sum + e.bandwidth, 0);
 
-    let target = 0;
-    employees.forEach((emp) => {
-      const map = allTargets[emp.id] || {};
-      Object.entries(map).forEach(([weekStartISO, mbps]) => {
-        const monday = new Date(weekStartISO);
-        if (monday >= monthStart && monday <= monthEnd) target += Number(mbps) || 0;
-      });
-    });
+    const target = employees.reduce(
+      (sum, emp) => sum + resolveMonthlyTarget(allTargets[emp.id], monthKey), 0
+    );
 
     const hasTarget = target > 0;
     const achievementPct = hasTarget ? Math.round((actual / target) * 100) : null;

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 
+
 const SalesTargetSchema = new mongoose.Schema(
   {
     employee: {
@@ -7,9 +8,9 @@ const SalesTargetSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "Employee is required"],
     },
-    weekStart: {
+    monthStart: {
       type: Date,
-      required: [true, "Week start date is required"],
+      required: [true, "Month start date is required"],
     },
     targetMbps: {
       type: Number,
@@ -25,6 +26,6 @@ const SalesTargetSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-SalesTargetSchema.index({ employee: 1, weekStart: 1 }, { unique: true });
+SalesTargetSchema.index({ employee: 1, monthStart: 1 }, { unique: true });
 
 module.exports = mongoose.model("SalesTarget", SalesTargetSchema);
