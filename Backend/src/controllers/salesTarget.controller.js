@@ -4,23 +4,33 @@ const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
 const ROLES = require("../constants/roles");
 
-// Normalizes any date to the 1st 00:00:00 of its month.
+// Normalizes any date to the 1st 00:00:00 UTC of its month. Uses UTC
+// getters/constructor throughout so the result is identical no matter what
+// timezone the server runs in, and matches the plain "YYYY-MM-01" date
+// strings the frontend sends (which JS parses as UTC midnight).
 const toMonthStart = (dateInput) => {
   const d = new Date(dateInput);
   if (isNaN(d.getTime())) return null;
-  return new Date(d.getFullYear(), d.getMonth(), 1);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 };
 
-const isoDate = (d) => new Date(d).toISOString().slice(0, 10);
+const isoDate = (d) => {
+  const date = new Date(d);
+  return isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+};
 
 // Reshapes a flat list of target docs into { [employeeId]: { [monthStartISO]: targetMbps } }
-// — the exact shape the frontend's targetService already expects.
+// — the exact shape the frontend's targetService already expects. Any
+// record with a missing/invalid monthStart (e.g. a leftover from the old
+// weekly-target schema) is skipped rather than crashing the request.
 const groupByEmployee = (targets) => {
   const grouped = {};
   targets.forEach((t) => {
+    const key = isoDate(t.monthStart);
+    if (!key) return;
     const empId = String(t.employee?._id || t.employee);
     if (!grouped[empId]) grouped[empId] = {};
-    grouped[empId][isoDate(t.monthStart)] = t.targetMbps;
+    grouped[empId][key] = t.targetMbps;
   });
   return grouped;
 };
@@ -44,7 +54,10 @@ const getEmployeeTargets = asyncHandler(async (req, res, next) => {
 
   const targets = await SalesTarget.find({ employee: employeeId }).lean();
   const map = {};
-  targets.forEach((t) => { map[isoDate(t.monthStart)] = t.targetMbps; });
+  targets.forEach((t) => {
+    const key = isoDate(t.monthStart);
+    if (key) map[key] = t.targetMbps;
+  });
 
   res.status(200).json({ success: true, data: map });
 });

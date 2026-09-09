@@ -1,15 +1,12 @@
-
 import api from './api';
 
-// Returns the ISO date (YYYY-MM-DD) of the 1st of the month containing `date`
 export const getMonthStartISO = (date = new Date()) => {
   const d = new Date(date);
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}-01`;
 };
 
-// Given { [monthStartISO]: targetMbps } for one employee, resolves the
-// effective target for `monthStartISO`: the explicit value if set, else the
-// most recent earlier month's value (carry-forward), else 0.
 export const resolveMonthlyTarget = (monthlyTargetsMap, monthStartISO) => {
   const map = monthlyTargetsMap || {};
   if (map[monthStartISO] != null) return Number(map[monthStartISO]) || 0;
