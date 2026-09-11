@@ -9,7 +9,7 @@ import targetService, { getMonthStartISO, resolveMonthlyTarget } from '../../../
 import { formatBandwidth } from '../../Utils/formatters';
 import SetTargetModal from '../SetTargetModal';
 
-const GRAINS = ['daily', 'weekly', 'monthly', 'yearly'];
+const GRAINS = ['monthly', 'yearly'];
 const PERIOD_COUNT = { daily: 14, weekly: 8, monthly: 6, yearly: 4 };
 const AVG_WEEKS_PER_MONTH = 4.345;
 
