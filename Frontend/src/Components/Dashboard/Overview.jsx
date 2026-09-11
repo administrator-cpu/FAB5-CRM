@@ -21,7 +21,7 @@ function Overview() {
   const p = metrics?.performance;
 
   const list = [
-    { name: "Lifetime revenue",  value: p?.lifeTimeRevenue !== undefined ? `₹${Math.round(p.lifeTimeRevenue).toLocaleString("en-IN")}` : "₹0", lead: true },
+    { name: "Revenue",  value: p?.lifeTimeRevenue !== undefined ? `₹${Math.round(p.lifeTimeRevenue).toLocaleString("en-IN")}` : "₹0", lead: true },
   ];
 
   

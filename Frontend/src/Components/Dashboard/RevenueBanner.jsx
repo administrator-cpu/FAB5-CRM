@@ -71,7 +71,7 @@ function RevenueBanner({ revenue }) {
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9aa1ad", letterSpacing: ".01em" }}>
-            Life time revenue
+            Revenue
           </span>
           {delta !== null && (
             <span
