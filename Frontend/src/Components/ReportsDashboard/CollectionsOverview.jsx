@@ -4,6 +4,7 @@ import CollectionVsOutstandingChart from './Charts/CollectionVsOutstandingChart'
 import AgingAnalysisChart from './Charts/AgingAnalysisChart';
 import CollectionEfficiencyGauge from './Charts/CollectionEfficiencyGauge';
 import TopDefaultersChart from './Charts/TopDefaultersChart';
+import WeeklyCollectionsChart from './Charts/WeeklyCollectionsChart';
 import api from './api';
 import { useDashboardAnalytics } from './useDashboardAnalytics';
 
@@ -56,6 +57,10 @@ const CollectionsOverview = () => {
 
       <div className="grid grid-cols-1 gap-6">
         <TopDefaultersChart data={overview.topDefaulters} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        <WeeklyCollectionsChart data={overview.weeklyCollections} />
       </div>
     </div>
   );
