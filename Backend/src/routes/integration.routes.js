@@ -1,7 +1,8 @@
 const express = require("express");
 const {
   searchCustomersForInvoice, getCustomerProfileForInvoice, getDashboardConnections, getConnectionBillingHistory,
-  getCustomerConnectionsForInvoice, getSamadhanCustomerWithConnections, getSamadhanCustomerWithConnectionsv2
+  getCustomerConnectionsForInvoice, getSamadhanCustomerWithConnections, getSamadhanCustomerWithConnectionsv2,
+  checkOpportunityExists
 } = require("../controllers/invoiceIntegration.controller");
 
 const router = express.Router();
@@ -16,6 +17,7 @@ const protectInternal = (req, res, next) => {
 
 // All routes prefixed with /api/crm in app.js
 router.get("/customers", protectInternal, searchCustomersForInvoice);
+router.get("/connections/check/:opportunityId", protectInternal, checkOpportunityExists);
 router.get("/customers/:id", protectInternal, getCustomerProfileForInvoice);
 router.get("/customers/:id/connections", protectInternal, getCustomerConnectionsForInvoice);
 router.get("/:id/billing-history", protectInternal, getConnectionBillingHistory);
