@@ -195,7 +195,7 @@ const getSamadhanCustomerWithConnections = asyncHandler(async (req, res, next) =
   const safeSearch = escapeRegex(search.trim());
 
   const customer = await Customer.findOne({
-    name: { $regex: new RegExp(safeSearch, "i") },
+    name: { $regex: new RegExp(`^${safeSearch}$`, "i") },
     isActive: true
   });
 
@@ -259,7 +259,7 @@ const getSamadhanCustomerWithConnectionsv2 = asyncHandler(async (req, res, next)
   const safeSearch = escapeRegex(search.trim());
 
   const customer = await Customer.findOne({
-    name: { $regex: new RegExp(safeSearch, "i") },
+    name: { $regex: new RegExp(`^${safeSearch}$`, "i") },
     isActive: true
   });
 
@@ -340,6 +340,25 @@ const getSamadhanCustomerWithConnectionsv2 = asyncHandler(async (req, res, next)
   });
 });
 
+const checkOpportunityExists = asyncHandler(async (req, res, next) => {
+  const { opportunityId } = req.params;
+  const connection = await Connection.findOne({ opportunityId: opportunityId.trim() })
+    .select("customer").populate("customer", "name");
+
+  if (!connection || !connection.customer) {
+    return res.status(200).json({
+      success: true,
+      exists: false
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    exists: true,
+    customerName: connection.customer.name
+  });
+});
+
 module.exports = {
   searchCustomersForInvoice,
   getCustomerProfileForInvoice,
@@ -347,5 +366,6 @@ module.exports = {
   getConnectionBillingHistory,
   getDashboardConnections,
   getSamadhanCustomerWithConnections,
-  getSamadhanCustomerWithConnectionsv2
+  getSamadhanCustomerWithConnectionsv2,
+  checkOpportunityExists
 };
