@@ -527,8 +527,10 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
       return next(new AppError(`Mixed batches are not allowed! You cannot mix ${baseServiceFamily} (${connections[0].serviceType}) ${baseRequestType} with ${currentServiceFamily} (${conn.serviceType}) ${currentReqType}.`, 400));
     }
 
-    if (!conn.providerCost || !conn.providerCost.mrc || conn.providerCost.mrc <= 0) {
-      return next(new AppError(`Provider Cost is missing or zero for Connection ID: ${conn.opportunityId}. Please update the provider cost first!`, 400));
+    if (currentReqType !== "IP_ADDITION") {
+      if (!conn.providerCost || !conn.providerCost.mrc || conn.providerCost.mrc <= 0) {
+        return next(new AppError(`Provider Cost is missing or zero for Connection ID: ${conn.opportunityId}. Please update the provider cost first!`, 400));
+      }
     }
 
     const btsA = conn.technicalDetails?.aEnd?.btsId;
@@ -697,6 +699,9 @@ const activateConnection = asyncHandler(async (req, res, next) => {
   connection.acceptanceDate = new Date(acceptanceDate);
   connection.remarks = "";
   connection.activatedBy = req.user._id;
+  if (connection.isIpAdditionRequest) {
+    connection.isIpAdditionRequest = false;
+  }
   connection.history.push({
     action: "ACTIVATED",
     performedBy: req.user._id,
@@ -1194,6 +1199,7 @@ const addIp = asyncHandler(async (req, res, next) => {
   });
 
   connection.status = "Pending";
+  connection.isIpAdditionRequest = true;
   connection.history.push({
     action: "IP_ADDITION",
     performedBy: req.user._id,

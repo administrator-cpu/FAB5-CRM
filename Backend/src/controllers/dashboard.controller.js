@@ -110,7 +110,7 @@ const getDashboardConnections = asyncHandler(async (req, res, next) => {
 
 const [connections, totalDocs] = await Promise.all([
   Connection.find(matchStage)
-    .select("opportunityId serviceType bandwidth status createdAt customer providerCost technicalDetails createdBy") 
+    .select("opportunityId serviceType bandwidth status createdAt customer providerCost isIpAdditionRequest technicalDetails createdBy") 
     .populate("customer", "name") 
     .populate("createdBy", "name") 
     .sort({ createdAt: -1 })

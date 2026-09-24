@@ -342,8 +342,10 @@ const getSamadhanCustomerWithConnectionsv2 = asyncHandler(async (req, res, next)
 
 const checkOpportunityExists = asyncHandler(async (req, res, next) => {
   const { opportunityId } = req.params;
-  const connection = await Connection.findOne({ opportunityId: opportunityId.trim() })
-    .select("customer").populate("customer", "name");
+  const connection = await Connection.findOne({
+    opportunityId: opportunityId.trim(),
+    "history.action": "ACTIVATED"
+  }).select("customer").populate("customer", "name");
 
   if (!connection || !connection.customer) {
     return res.status(200).json({
