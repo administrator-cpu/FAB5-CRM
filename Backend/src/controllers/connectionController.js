@@ -476,39 +476,23 @@ const updateProviderCost = asyncHandler(async (req, res, next) => {
 const markAsGeneration = asyncHandler(async (req, res, next) => {
   const { connectionIds } = req.body;
 
-  if (
-    !connectionIds ||
-    !Array.isArray(connectionIds) ||
-    connectionIds.length === 0
-  ) {
+  if (!connectionIds || !Array.isArray(connectionIds) || connectionIds.length === 0) {
     return next(new AppError("Please select at least one connection", 400));
   }
 
   const validIds = connectionIds.filter(id => id && mongoose.isValidObjectId(id));
   if (validIds.length !== connectionIds.length) {
-    return next(
-      new AppError(
-        "One or more provided Connection IDs are invalid or empty.",
-        400,
-      ),
-    );
+    return next(new AppError("One or more provided Connection IDs are invalid or empty.", 400));
   }
 
   const connections = await Connection.find({ _id: { $in: validIds } });
   if (connections.length !== validIds.length) {
-    return next(
-      new AppError("One or more connections could not be found", 404),
-    );
+    return next(new AppError("One or more connections could not be found", 404));
   }
 
   const unapproved = connections.filter(c => c.status !== "Approved");
   if (unapproved.length > 0) {
-    return next(
-      new AppError(
-        "All selected connections must be in 'Approved' status",
-        400,
-      ),
-    );
+    return next(new AppError("All selected connections must be in 'Approved' status", 400));
   }
 
   const NLD_FAMILY = ["DNC", "Mix", "Peering"];
@@ -519,16 +503,24 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
   const baseServiceType = connections[0].serviceType;
   const baseServiceFamily = getServiceFamily(connections[0].serviceType);
   const baseRequestType = getRequestType(connections[0].history);
+  const baseIsIpAddition = Boolean(connections[0].isIpAdditionRequest);
 
   for (const conn of connections) {
     const currentReqType = getRequestType(conn.history);
     const currentServiceFamily = getServiceFamily(conn.serviceType);
+    const currentIsIpAddition = Boolean(conn.isIpAdditionRequest);
+    if (currentIsIpAddition !== baseIsIpAddition) {
+      return next(new AppError(`Mixed batches are not allowed! You cannot mix IP Addition requests with standard requests.`, 400));
+    }
+
     if (currentServiceFamily !== baseServiceFamily || currentReqType !== baseRequestType) {
       return next(new AppError(`Mixed batches are not allowed! You cannot mix ${baseServiceFamily} (${connections[0].serviceType}) ${baseRequestType} with ${currentServiceFamily} (${conn.serviceType}) ${currentReqType}.`, 400));
     }
 
-    if (!conn.providerCost || !conn.providerCost.mrc || conn.providerCost.mrc <= 0) {
-      return next(new AppError(`Provider Cost is missing or zero for Connection ID: ${conn.opportunityId}. Please update the provider cost first!`, 400));
+    if (!currentIsIpAddition) {
+      if (!conn.providerCost || !conn.providerCost.mrc || conn.providerCost.mrc <= 0) {
+        return next(new AppError(`Provider Cost is missing or zero for Connection ID: ${conn.opportunityId}. Please update the provider cost first!`, 400));
+      }
     }
 
     const btsA = conn.technicalDetails?.aEnd?.btsId;
@@ -538,12 +530,7 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
 
     if (conn.serviceType === "ILL") {
       if (!btsA || !addrA) {
-        return next(
-          new AppError(
-            `A-End Details (BTS ID or Address) are missing for ILL Connection ID: ${conn.opportunityId}.`,
-            400,
-          ),
-        );
+        return next(new AppError(`A-End Details (BTS ID or Address) are missing for ILL Connection ID: ${conn.opportunityId}.`, 400));
       }
     } else {
       if (!btsA || !addrA || !btsB || !addrB) {
@@ -553,32 +540,8 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
   }
 
   const processedOpportunityIds = connections.map(c => c.opportunityId);
-  // const queueBulkEmail = async () => {
-  //   try {
-  //     const populated = await withCreatedBy(connections[0]._id);
-  //     await emailQueue.add(
-  //       "sendEmail",
-  //       {
-  //         type: "BULK_ORDER_GENERATED",
-  //         data: {
-  //           opportunityIds: processedOpportunityIds,
-  //           createdByEmail: populated.createdBy?.email
-  //         },
-  //         user: req.user,
-  //       },
-  //       { attempts: 3, backoff: { type: "exponential", delay: 1000 } }
-  //     );
-  //     logger.info("Bulk generation email queued successfully", { count: processedOpportunityIds.length });
-  //   } catch (error) {
-  //     logger.error("Failed to send BULK_ORDER_GENERATED email", {
-  //       opportunityIds: processedOpportunityIds.join(', '),
-  //       error: error.message,
-  //     });
-  //   }
-  // };
 
-
-  if (baseRequestType === "IP_ADDITION") {
+  if (baseIsIpAddition) {
     for (const connection of connections) {
       connection.status = "Generation";
       connection.history.push({
@@ -601,14 +564,11 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
       });
     }
 
-    // await queueBulkEmail();
-
     return res.status(200).json({
       success: true,
       message: "IP Addition requests successfully moved to Generation status.",
     });
   }
-
 
   let templatePath;
   try {
@@ -656,8 +616,6 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
     });
   }
 
-  // await queueBulkEmail();
-
   res.attachment(`${safePoName}.zip`);
   const archive = archiver("zip", { zlib: { level: 9 } });
 
@@ -697,6 +655,9 @@ const activateConnection = asyncHandler(async (req, res, next) => {
   connection.acceptanceDate = new Date(acceptanceDate);
   connection.remarks = "";
   connection.activatedBy = req.user._id;
+  if (connection.isIpAdditionRequest) {
+    connection.isIpAdditionRequest = false;
+  }
   connection.history.push({
     action: "ACTIVATED",
     performedBy: req.user._id,
@@ -1159,7 +1120,7 @@ const shiftConnection = asyncHandler(async (req, res, next) => {
 
 const addIp = asyncHandler(async (req, res, next) => {
   const { count, cost, remarks } = req.body;
-  if (!count || !cost) return next(new AppError("Missing required fields", 400));
+  if (!count || cost === undefined) return next(new AppError("Missing required fields", 400));
 
   const connection = await Connection.findById(req.params.id);
   if (!connection) return next(new AppError("Connection not found", 404));
@@ -1168,15 +1129,26 @@ const addIp = asyncHandler(async (req, res, next) => {
     return next(new AppError("Can only add IPs to Active connections", 400));
   }
 
-  if (req.user.role === ROLES.EMPLOYEE) {
+  if (req.user.role === "Employee") { // Adjust ROLES.EMPLOYEE if needed
     const customer = await Customer.findById(connection.customer);
     if (!customer?.managedBy.equals(req.user._id)) {
       return next(new AppError("You can only modify your own customers' connections", 403));
     }
   }
 
-  connection.ips.count = (connection.ips?.count || 0) + Number(count);
-  connection.ips.cost = (connection.ips?.cost || 0) + Number(cost);
+  const currentIpCount = Number(connection.ips?.count) || 0;
+  const currentIpCost = Number(connection.ips?.cost) || 0;
+
+  const addedCount = Number(count);
+  const addedCost = Number(cost);
+
+  const newTotalCount = currentIpCount + addedCount;
+  const newTotalCost = currentIpCost + addedCost;
+  connection.ips = {
+    count: newTotalCount,
+    cost: newTotalCost
+  };
+
   if (remarks) connection.remarks = remarks;
 
   if (!req.files && !req.files.purchaseOrder || !req.files.purchaseOrder[0]) {
@@ -1194,27 +1166,30 @@ const addIp = asyncHandler(async (req, res, next) => {
   });
 
   connection.status = "Pending";
+  connection.isIpAdditionRequest = true;
   connection.history.push({
     action: "IP_ADDITION",
     performedBy: req.user._id,
     date: new Date(),
-    note: `Adding ${count} IPs at cost ${cost}`,
-    ips: { count: Number(count), cost: Number(cost) },
+    note: `Adding ${addedCount} IPs (₹${addedCost}). Total IPs will be ${newTotalCount} at ₹${newTotalCost}.`,
+    ips: { count: newTotalCount, cost: newTotalCost },
     ...buildSnapshot(connection),
   });
   connection.providerCost = { mrc: 0, otc: 0, ratePerMb: 0 };
   await connection.save();
 
-  ioHelper.broadcastChange("connections_mutated", {
-    action: "IP_ADDITION",
-    id: connection._id
-  });
+  if (global.ioHelper) {
+    global.ioHelper.broadcastChange("connections_mutated", {
+      action: "IP_ADDITION",
+      id: connection._id
+    });
+  }
 
   logger.info("IP addition requested", {
     opportunityId: connection.opportunityId,
-    count,
+    count: addedCount,
     by: req.user._id
-  })
+  });
 
   return res.status(200).json({
     success: true,

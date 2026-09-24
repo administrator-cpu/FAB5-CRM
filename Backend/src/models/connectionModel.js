@@ -134,6 +134,10 @@ const ConnectionSchema = new mongoose.Schema(
       ratePerMb: { type: Number, default: 0 },
       updatedAt: { type: Date },
     },
+    isIpAdditionRequest: {
+      type: Boolean,
+      default: false
+    },
     ips: {
       count: { type: Number, default: 0 },
       cost: { type: Number, default: 0 },

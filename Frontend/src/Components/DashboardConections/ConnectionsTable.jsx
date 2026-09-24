@@ -79,9 +79,10 @@ const ConnectionsTable = ({ user, selectedConnections, handleSelectConnection })
         </div>
 
         {connections.map((conn) => {
+          console.log("Connection:", conn?.isIpAdditionRequest);
           const hasProviderCost = Boolean(
             conn?.providerCost?.ratePerMb && Number(conn?.providerCost?.ratePerMb) > 0
-          );
+          ) || Boolean(conn?.isIpAdditionRequest)
           const isSelected = selectedConnections.includes(conn._id);
           const meta = STATUS[conn?.status] || { label: conn?.status || "—", color: "#a8a3bb" };
           const name = conn?.customer?.name || "Unknown";
