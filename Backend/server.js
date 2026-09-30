@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const { app, server } = require("./src/app"); 
+const { app, server, io } = require("./src/app");
 const connectDB = require("./src/config/db");
 const { startReminderJob, startAutoTerminationJob, startRateRevisionJob } = require("./src/services/cronService")
 const { shutDownRedis } = require("./src/config/cache");
@@ -35,31 +35,54 @@ const startServer = async () => {
       }, 15000);
       forceKillTimer.unref();
 
-      server.close(async () => {
-        logger.info("HTTP server closed");
+      try {
+        if (io) {
+          io.close();
+          logger.info("Socket.IO server closed");
+        }
+        await new Promise((resolve) => {
+          server.close(() => {
+            logger.info("HTTP server closed");
+            resolve();
+          });
+        });
 
         try {
           const mongoose = require("mongoose");
           await mongoose.connection.close(false);
           logger.info("✅ MongoDB disconnected gracefully");
         } catch (err) {
-          logger.error("❌ MongoDB shutdown error", { error: err.message });
+          logger.error("❌ MongoDB shutdown error", {
+            error: err.message,
+          });
         }
 
         try {
           await shutDownRedis();
+          logger.info("✅ Redis disconnected gracefully");
         } catch (err) {
-          logger.error("❌ Redis shutdown error", { error: err.message });
+          logger.error("❌ Redis shutdown error", {
+            error: err.message,
+          });
         }
 
         clearTimeout(forceKillTimer);
         logger.info("✅ Shutdown complete");
         process.exit(0);
-      });
+
+      } catch (err) {
+        logger.error("❌ Graceful shutdown failed", {
+          error: err.message,
+          stack: err.stack,
+        });
+
+        clearTimeout(forceKillTimer);
+        process.exit(1);
+      }
     };
 
     process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-    process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
+    process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
     process.on("unhandledRejection", (reason) => {
       logger.error("❌ Unhandled Rejection", {
