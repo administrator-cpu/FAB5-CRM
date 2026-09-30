@@ -8,7 +8,7 @@ const {
   editRejectedConnection, editRemark, migratePurchaseOrders, updateProviderCost,
   markAsGeneration, cancelConnection, deleteConnection, activateConnection,
   editConnection, updateCoordinates, shiftConnection, addIp, undoDisconnection,
-  getProjectManagerReport, downloadDocument, transferConnections, removeTransferLog
+  getProjectManagerReport, downloadDocument, transferConnections, removeTransferLog, checkDuplicateTelcoCircuitIds
 } = require("../controllers/connectionController");
 const { updateDashboardMetricsPostResponse } = require("../middlewares/realtimeMiddleware");
 
@@ -20,6 +20,7 @@ router.get("/project-report", protect, authorize(ROLES.PROJECT_MANAGER, ROLES.AD
 /* DEVELOPER ONLY API */
 router.post("/transfer", protect, authorize(ROLES.ADMIN), transferConnections);
 router.post("/transfer/remove-log", protect, authorize(ROLES.ADMIN), removeTransferLog);
+router.get("/duplicates/telco-ids", protect, authorize(ROLES.ADMIN, ROLES.OWNER), checkDuplicateTelcoCircuitIds);
 /* END OF DEVELOPER ONLY API */
 router.get("/details/:id", protect, getConnectionById);
 router.get("/status/:status", protect, authorize(ROLES.EMPLOYEE, ROLES.ADMIN, ROLES.OWNER, ROLES.ORDER_GENERATION, ROLES.PROJECT_MANAGER), getConnectionsByStatus);
