@@ -1503,6 +1503,37 @@ const removeTransferLog = asyncHandler(async (req, res, next) => {
   });
 });
 
+const checkDuplicateTelcoCircuitIds = asyncHandler(async (req, res, next) => {
+  const duplicates = await Connection.aggregate([
+    {
+      $match: {
+        telecoCircuitId: { $nin: [null, "", undefined] }
+      }
+    },
+    {
+      $group: {
+        _id: "$telecoCircuitId",
+        count: { $sum: 1 },
+        opportunityIds: { $push: "$opportunityId" }
+      }
+    },
+    {
+      $match: {
+        count: { $gt: 1 }
+      }
+    },
+    {
+      $sort: { count: -1 }
+    }
+  ]);
+
+  res.status(200).json({
+    success: true,
+    totalDuplicateGroups: duplicates.length,
+    duplicates,
+  });
+});
+
 /* Get Back Disconnected Connections */
 const undoDisconnection = asyncHandler(async (req, res, next) => {
   const connection = await Connection.findById(req.params.id);
@@ -1569,5 +1600,6 @@ module.exports = {
   addIp,
   getProjectManagerReport,
   downloadDocument,
-  undoDisconnection
+  undoDisconnection,
+  checkDuplicateTelcoCircuitIds
 };
