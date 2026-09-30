@@ -644,6 +644,18 @@ const activateConnection = asyncHandler(async (req, res, next) => {
     return next(new AppError(`Cannot activate — current status is ${connection.status}`, 400));
   }
 
+  const provider = connection.technicalDetails?.telcoProvider;
+
+  const existingDuplicate = await Connection.findOne({
+    telecoCircuitId: telecoCircuitId.trim(),
+    "technicalDetails.telcoProvider": provider,
+    _id: { $ne: connection._id }
+  });
+
+  if (existingDuplicate) {
+    return next(new AppError(`Telecom Circuit ID "${telecoCircuitId}" is already in use by another ${provider || "Unknown Provider"} connection (Opportunity: ${existingDuplicate.opportunityId}).`, 400));
+  }
+
   const formattedDate = new Date(acceptanceDate).toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
@@ -651,7 +663,7 @@ const activateConnection = asyncHandler(async (req, res, next) => {
   });
 
   connection.status = "Active";
-  connection.telecoCircuitId = telecoCircuitId;
+  connection.telecoCircuitId = telecoCircuitId.trim();
   connection.acceptanceDate = new Date(acceptanceDate);
   connection.remarks = "";
   connection.activatedBy = req.user._id;
@@ -667,10 +679,13 @@ const activateConnection = asyncHandler(async (req, res, next) => {
   });
 
   await connection.save();
-  ioHelper.broadcastChange("connections_mutated", {
-    action: "ACTIVATED",
-    id: connection._id
-  });
+
+  if (global.ioHelper) {
+    global.ioHelper.broadcastChange("connections_mutated", {
+      action: "ACTIVATED",
+      id: connection._id
+    });
+  }
 
   logger.info("Connection activated", {
     opportunityId: connection.opportunityId,
@@ -1512,7 +1527,10 @@ const checkDuplicateTelcoCircuitIds = asyncHandler(async (req, res, next) => {
     },
     {
       $group: {
-        _id: "$telecoCircuitId",
+        _id: {
+          telecoCircuitId: "$telecoCircuitId",
+          provider: "$technicalDetails.telcoProvider"
+        },
         count: { $sum: 1 },
         opportunityIds: { $push: "$opportunityId" }
       }
@@ -1524,6 +1542,15 @@ const checkDuplicateTelcoCircuitIds = asyncHandler(async (req, res, next) => {
     },
     {
       $sort: { count: -1 }
+    },
+    {
+      $project: {
+        _id: 0,
+        telecoCircuitId: "$_id.telecoCircuitId",
+        provider: { $ifNull: ["$_id.provider", "Unknown Provider"] }, // Handle missing providers gracefully
+        count: 1,
+        opportunityIds: 1
+      }
     }
   ]);
 
