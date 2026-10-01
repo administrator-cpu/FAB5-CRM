@@ -214,6 +214,10 @@ const ConnectionSchema = new mongoose.Schema(
 );
 
 ConnectionSchema.index({ opportunityId: 1 }, { unique: true });
+ConnectionSchema.index(
+  { telecoCircuitId: 1, "technicalDetails.telcoProvider": 1 },
+  {unique: true, partialFilterExpression: { telecoCircuitId: { $type: "string", $regex: /./ } }}
+);
 ConnectionSchema.index({ customer: 1 });
 ConnectionSchema.index({ status: 1 });
 ConnectionSchema.index({ createdBy: 1 });
