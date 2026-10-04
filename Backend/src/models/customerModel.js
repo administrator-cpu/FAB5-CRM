@@ -26,6 +26,7 @@ const documentSchema = {
   fileName: String,
   url: String,
   publicId: String,
+  storage: { type: String, enum: ["cloudinary", "local"] }, // absent = cloudinary (legacy)
   uploadedAt:{ type: Date, default: Date.now },
 };
 

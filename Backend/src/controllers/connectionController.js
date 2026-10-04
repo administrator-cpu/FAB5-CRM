@@ -1,10 +1,11 @@
 const mongoose = require("mongoose");
+const path = require("path");
 const archiver = require("archiver");
 const CompanyPO = require("../models/po.model.js");
 const { generateGlobalPoNumber, getPdfTemplatePath, generatePoExcel, generatePoPdf } = require("../utils/documentGenerators");
 const Connection = require("../models/connectionModel");
 const Customer = require("../models/customerModel");
-const { uploadToCloudinary } = require("../services/upload.service");
+const { uploadDocument } = require("../services/upload.service");
 const { sendConnectionEmail, sendChangeEmail } = require("../services/sendEmail");
 const emailQueue = require("../queue/email.queue");
 const asyncHandler = require("../utils/asyncHandler");
@@ -12,6 +13,7 @@ const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 const ROLES = require("../constants/roles");
 const ioHelper = require("../utils/ioHelper.js");
+const { STORAGE_DRIVERS, resolveLocalPath } = require("../config/storage");
 
 const buildSnapshot = (connection) => ({
   serviceType: connection.serviceType,
@@ -73,11 +75,12 @@ const createConnection = asyncHandler(async (req, res, next) => {
   if (req.files) {
     if (req.files.purchaseOrder && req.files.purchaseOrder[0]) {
       const file = req.files.purchaseOrder[0];
-      const uploaded = await uploadToCloudinary(file, "crm/connections/purchaseOrders");
+      const uploaded = await uploadDocument(file, "crm/connections/purchaseOrders");
       purchaseOrders.push({
         fileName: file.originalname,
-        url: uploaded.secure_url,
-        publicId: uploaded.public_id,
+        url: uploaded.url,
+        publicId: uploaded.publicId,
+        storage: uploaded.storage,
         requestType: "CREATED"
       });
     }
@@ -85,22 +88,24 @@ const createConnection = asyncHandler(async (req, res, next) => {
     if (req.files.businessAgreement && req.files.businessAgreement[0]) {
       const file = req.files.businessAgreement[0];
       if (file.size > 0) {
-        const uploaded = await uploadToCloudinary(file, "crm/connections/businessAgreements");
+        const uploaded = await uploadDocument(file, "crm/connections/businessAgreements");
         businessAgreement = {
           fileName: file.originalname,
-          url: uploaded.secure_url,
-          publicId: uploaded.public_id,
+          url: uploaded.url,
+          publicId: uploaded.publicId,
+          storage: uploaded.storage,
         };
       }
     }
 
     if (req.files.caf && req.files.caf[0]) {
       const file = req.files.caf[0];
-      const uploaded = await uploadToCloudinary(file, "crm/connections/cafs");
+      const uploaded = await uploadDocument(file, "crm/connections/cafs");
       caf = {
         fileName: file.originalname,
-        url: uploaded.secure_url,
-        publicId: uploaded.public_id,
+        url: uploaded.url,
+        publicId: uploaded.publicId,
+        storage: uploaded.storage,
       };
     }
   }
@@ -583,16 +588,17 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
   const excelBuffer = await generatePoExcel(connections);
   const pdfBuffer = await generatePoPdf(templatePath, poNumber);
 
-  const excelUpload = await uploadToCloudinary({ buffer: excelBuffer }, "crm/company_pos");
-  const pdfUpload = await uploadToCloudinary({ buffer: pdfBuffer }, "crm/company_pos");
+  const excelUpload = await uploadDocument({ buffer: excelBuffer }, "crm/company_pos", { ext: ".xlsx" });
+  const pdfUpload = await uploadDocument({ buffer: pdfBuffer }, "crm/company_pos", { ext: ".pdf" });
 
   const companyPoRecord = await CompanyPO.create({
     poNumber: poNumber,
     financialYear: financialYear,
     connections: validIds,
     generatedBy: req.user._id,
-    pdfUrl: pdfUpload.secure_url,
-    excelUrl: excelUpload.secure_url
+    pdfUrl: pdfUpload.url,
+    excelUrl: excelUpload.url,
+    storage: pdfUpload.storage
   });
 
   for (const connection of connections) {
@@ -775,16 +781,17 @@ const editConnection = asyncHandler(async (req, res, next) => {
   if (ratePerMb !== undefined) connection.commercials.ratePerMb = ratePerMb;
   if (remarks) connection.remarks = remarks;
 
-  if (!req.files && !req.files.purchaseOrder || !req.files.purchaseOrder[0]) {
+  if (!req.files?.purchaseOrder?.[0]) {
     return next(new AppError("A Purchase Order (PO) document is mandatory for bandwidth modifications.", 400));
   }
   const poFile = req.files.purchaseOrder[0];
-  const uploadResult = await uploadToCloudinary(poFile, "crm/connections/purchaseOrders");
+  const uploadResult = await uploadDocument(poFile, "crm/connections/purchaseOrders");
 
   connection.purchaseOrders.push({
     fileName: poFile.originalname,
-    url: uploadResult.secure_url,
-    publicId: uploadResult.public_id,
+    url: uploadResult.url,
+    publicId: uploadResult.publicId,
+    storage: uploadResult.storage,
     requestType: actionType
   });
 
@@ -1058,11 +1065,12 @@ const shiftConnection = asyncHandler(async (req, res, next) => {
     return next(new AppError("A Purchase Order document is required to process this shifting request", 400));
   }
   const poFile = req.files.purchaseOrder[0];
-  const uploadedPo = await uploadToCloudinary(poFile, "crm/connections/purchaseOrders");
+  const uploadedPo = await uploadDocument(poFile, "crm/connections/purchaseOrders");
   connection.purchaseOrders.push({
     fileName: poFile.originalname,
-    url: uploadedPo.secure_url,
-    publicId: uploadedPo.public_id,
+    url: uploadedPo.url,
+    publicId: uploadedPo.publicId,
+    storage: uploadedPo.storage,
     requestType: "SHIFTING",
   })
 
@@ -1166,17 +1174,18 @@ const addIp = asyncHandler(async (req, res, next) => {
 
   if (remarks) connection.remarks = remarks;
 
-  if (!req.files && !req.files.purchaseOrder || !req.files.purchaseOrder[0]) {
+  if (!req.files?.purchaseOrder?.[0]) {
     return next(new AppError("A Purchase Order document is required to process this IP addition request", 400));
   }
 
   const poFile = req.files.purchaseOrder[0];
-  const uploadResult = await uploadToCloudinary(poFile, "crm/customer_pos");
+  const uploadResult = await uploadDocument(poFile, "crm/customer_pos");
 
   connection.purchaseOrders.push({
     fileName: poFile.originalname,
-    url: uploadResult.secure_url,
-    publicId: uploadResult.public_id,
+    url: uploadResult.url,
+    publicId: uploadResult.publicId,
+    storage: uploadResult.storage,
     requestType: "IP_ADDITION"
   });
 
@@ -1391,14 +1400,14 @@ const downloadDocument = asyncHandler(async (req, res, next) => {
     return res.status(404).json({ message: "Connection not found" });
   }
 
-  let cloudinaryUrl = "";
+  let document = null;
   let downloadName = "";
 
   if (docType === "caf") {
-    cloudinaryUrl = connection.caf?.url;
+    document = connection.caf;
     downloadName = `CAF_${opportunityId}`;
   } else if (docType === "businessAgreement") {
-    cloudinaryUrl = connection.businessAgreement?.url;
+    document = connection.businessAgreement;
     downloadName = `Business_Agreement_${opportunityId}`;
   } else if (docType === "po") {
     if (!connection.purchaseOrders || connection.purchaseOrders.length === 0) {
@@ -1408,23 +1417,37 @@ const downloadDocument = asyncHandler(async (req, res, next) => {
     if (field) {
       targetPO = connection.purchaseOrders.id(field);
     } else {
-      targetPO = connection.purchaseOrders[purchaseOrders.length - 1];
+      targetPO = connection.purchaseOrders[connection.purchaseOrders.length - 1];
     }
     if (!targetPO) {
       return res.status(404).json({ message: "Requested Document not found." });
     }
-    cloudinaryUrl = targetPO.url;
+    document = targetPO;
     const requestTypeLabel = targetPO.requestType || "Doc";
     downloadName = `PO_${requestTypeLabel}_${opportunityId}`;
   } else {
     return res.status(400).json({ message: "Invalid document type requested" });
   }
 
-  if (!cloudinaryUrl) {
+  if (!document?.url) {
     return res.status(404).json({ message: "This document has not been uploaded yet." });
   }
 
-  const finalDownloadUrl = cloudinaryUrl.replace(
+  if (document.storage === STORAGE_DRIVERS.LOCAL) {
+    const absPath = resolveLocalPath(document.publicId);
+    if (!absPath) {
+      return res.status(404).json({ message: "Document file not found." });
+    }
+    return res.download(absPath, `${downloadName}${path.extname(absPath)}`, (err) => {
+      if (err && !res.headersSent) {
+        logger.error("Local document download failed", { opportunityId, docType, error: err.message });
+        res.status(404).json({ message: "Document file not found." });
+      }
+    });
+  }
+
+  // Legacy / Cloudinary documents (no `storage` field) — force download via Cloudinary flag
+  const finalDownloadUrl = document.url.replace(
     '/upload/',
     `/upload/fl_attachment:${downloadName}/`
   );

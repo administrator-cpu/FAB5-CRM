@@ -1,6 +1,6 @@
 const ExcelJS = require('exceljs');
 const { generateTemplate } = require('../services/bulkConnection.service');
-const { uploadToCloudinary } = require('../services/upload.service');
+const { uploadDocument } = require('../services/upload.service');
 const generateOpportunityId = require('../services/opportunityId.service');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
@@ -235,28 +235,31 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
     return next(new AppError("You can only create orders for your own customers", 403));
   }
 
-  const poUpload = await uploadToCloudinary(req.files.purchaseOrder[0], "crm/connections/purchaseOrders");
+  const poUpload = await uploadDocument(req.files.purchaseOrder[0], "crm/connections/purchaseOrders");
   const sharedPurchaseOrders = [{
     fileName: req.files.purchaseOrder[0].originalname,
-    url: poUpload.secure_url,
-    publicId: poUpload.public_id,
+    url: poUpload.url,
+    publicId: poUpload.publicId,
+    storage: poUpload.storage,
     requestType: "CREATED",
   }];
 
-  const cafUpload = await uploadToCloudinary(req.files.caf[0], "crm/connections/cafs");
+  const cafUpload = await uploadDocument(req.files.caf[0], "crm/connections/cafs");
   const sharedCaf = {
     fileName: req.files.caf[0].originalname,
-    url: cafUpload.secure_url,
-    publicId: cafUpload.public_id
+    url: cafUpload.url,
+    publicId: cafUpload.publicId,
+    storage: cafUpload.storage
   };
 
   let sharedBusinessAgreement = null;
   if (req.files.businessAgreement && req.files.businessAgreement[0]) {
-    const baUpload = await uploadToCloudinary(req.files.businessAgreement[0], "crm/connections/businessAgreements");
+    const baUpload = await uploadDocument(req.files.businessAgreement[0], "crm/connections/businessAgreements");
     sharedBusinessAgreement = {
       fileName: req.files.businessAgreement[0].originalname,
-      url: baUpload.secure_url,
-      publicId: baUpload.public_id
+      url: baUpload.url,
+      publicId: baUpload.publicId,
+      storage: baUpload.storage
     };
   }
 

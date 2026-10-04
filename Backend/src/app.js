@@ -11,6 +11,7 @@ const http = require("http");
 const { globalLimiter } = require("./middlewares/rateLimiter");
 const logger = require("./utils/logger");
 const AppError = require("./utils/AppError");
+const { UPLOAD_DIR, FILES_ROUTE } = require("./config/storage");
 
 const userRoutes = require("./routes/userRoutes");
 const customerRoutes = require("./routes/customerRoutes");
@@ -40,7 +41,7 @@ app.use((req, res, next) => {
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
-  
+
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, x-request-id, token");
@@ -48,13 +49,13 @@ app.use((req, res, next) => {
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
-  
+
   next();
 });
 
 // ─────────── Initialize Socket.io ────────────────────────
-const initSocket = require("./config/config.io"); 
-initSocket(server);
+const initSocket = require("./config/config.io");
+const io = initSocket(server);
 
 // ─────────── Trust Proxy (for secure cookies behind proxies) ────────────────
 app.set('trust proxy', 1);
@@ -62,7 +63,7 @@ app.set('trust proxy', 1);
 // ──────────────── Security Headers with Helmet ─────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  crossOriginOpenerPolicy: { policy: "unsafe-none" }, 
+  crossOriginOpenerPolicy: { policy: "unsafe-none" },
   crossOriginEmbedderPolicy: false
 }));
 
@@ -120,6 +121,17 @@ app.use(
   )
 );
 
+// ──────────────── Locally Stored Documents ─────────────────────────────
+if (UPLOAD_DIR) {
+  app.use(FILES_ROUTE, express.static(UPLOAD_DIR, {
+    index: false,
+    dotfiles: "deny",
+    redirect: false,
+    maxAge: "7d",
+    immutable: true,
+  }));
+}
+
 // ──────────────── Routes ─────────────────────────────
 app.use("/api/users", userRoutes);
 app.use("/api/bulk-connections", bulkConnectionRoutes);
@@ -154,7 +166,7 @@ app.use((req, res, next) => {
 // ──────────────── Global Error Handler ─────────────────────────────
 app.use((err, req, res, next) => {
   const isDev = process.env.NODE_ENV === "development";
-  
+
   if (err.name === "ValidationError") {
     const message = Object.values(err.errors).map(e => e.message).join(", ");
     return res.status(400).json({ success: false, message });
@@ -178,7 +190,7 @@ app.use((err, req, res, next) => {
     ip: req.ip,
     ...(isDev && { stack: err.stack }),
   });
-  
+
   const message = isDev
     ? err.message
     : err.isOperational
@@ -192,4 +204,4 @@ app.use((err, req, res, next) => {
   });
 });
 
-module.exports = { app, server };
+module.exports = { app, server, io };

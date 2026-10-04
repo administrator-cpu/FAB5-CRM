@@ -146,6 +146,7 @@ const ConnectionSchema = new mongoose.Schema(
       fileName: String,
       url: String,
       publicId: String,
+      storage: { type: String, enum: ["cloudinary", "local"] }, // absent = cloudinary (legacy)
       uploadedAt: { type: Date }
     },
     purchaseOrders: [
@@ -153,6 +154,7 @@ const ConnectionSchema = new mongoose.Schema(
         fileName: String,
         url: String,
         publicId: String,
+        storage: { type: String, enum: ["cloudinary", "local"] }, // absent = cloudinary (legacy)
         requestType: {
           type: String,
           enum: ["CREATED", "UPGRADE", "DOWNGRADE", "SHIFTING", "IP_ADDITION"],
@@ -165,12 +167,14 @@ const ConnectionSchema = new mongoose.Schema(
       fileName: String,
       url: String,
       publicId: String,
+      storage: { type: String, enum: ["cloudinary", "local"] }, // absent = cloudinary (legacy)
       uploadedAt: { type: Date, default: Date.now }
     },
     businessAgreement: {
       fileName: String,
       url: String,
       publicId: String,
+      storage: { type: String, enum: ["cloudinary", "local"] }, // absent = cloudinary (legacy)
       uploadedAt: { type: Date, default: Date.now }
     },
     remarks: {
