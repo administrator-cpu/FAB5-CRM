@@ -11,6 +11,7 @@ const http = require("http");
 const { globalLimiter } = require("./middlewares/rateLimiter");
 const logger = require("./utils/logger");
 const AppError = require("./utils/AppError");
+const { UPLOAD_DIR, FILES_ROUTE } = require("./config/storage");
 
 const userRoutes = require("./routes/userRoutes");
 const customerRoutes = require("./routes/customerRoutes");
@@ -119,6 +120,17 @@ app.use(
     }
   )
 );
+
+// ──────────────── Locally Stored Documents ─────────────────────────────
+if (UPLOAD_DIR) {
+  app.use(FILES_ROUTE, express.static(UPLOAD_DIR, {
+    index: false,
+    dotfiles: "deny",
+    redirect: false,
+    maxAge: "7d",
+    immutable: true,
+  }));
+}
 
 // ──────────────── Routes ─────────────────────────────
 app.use("/api/users", userRoutes);

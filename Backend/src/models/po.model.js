@@ -8,6 +8,7 @@ const companyPoSchema = new mongoose.Schema({
 
   pdfUrl: { type: String },
   excelUrl: { type: String },
+  storage: { type: String, enum: ["cloudinary", "local"] }, // absent = cloudinary (legacy)
 
 }, { timestamps: true });
 

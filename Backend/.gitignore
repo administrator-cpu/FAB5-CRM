@@ -3,3 +3,5 @@ node_modules
 EcommerceOrders.postman_collection
 logs/
 *.log
+# Locally stored documents (development uploads)
+storage/

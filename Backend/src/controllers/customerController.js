@@ -2,7 +2,7 @@ const exceljs = require("exceljs");
 const Customer = require("../models/customerModel");
 const Connection = require("../models/connectionModel");
 const User = require("../models/userModel");
-const { uploadToCloudinary } = require("../services/upload.service");
+const { uploadDocument } = require("../services/upload.service");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
@@ -78,26 +78,28 @@ const createCustomer = asyncHandler(async (req, res, next) => {
   const companyDocuments = []
   for (let i = 0; i < companyFiles.length; i++) {
     const file = companyFiles[i];
-    const uploaded = await uploadToCloudinary(file, "crm/customers/company");
+    const uploaded = await uploadDocument(file, "crm/customers/company");
 
     companyDocuments.push({
       documentType: compDocTypes[i] || "Company PAN",
       fileName: file.originalname,
-      url: uploaded.secure_url,
-      publicId: uploaded.public_id
+      url: uploaded.url,
+      publicId: uploaded.publicId,
+      storage: uploaded.storage
     });
   }
 
   const signatoryDocuments = []
   for (let i = 0; i < signatoryFiles.length; i++) {
     const file = signatoryFiles[i];
-    const uploaded = await uploadToCloudinary(file, "crm/customers/signatory");
+    const uploaded = await uploadDocument(file, "crm/customers/signatory");
 
     signatoryDocuments.push({
       documentType: sigDocTypes[i] || "PAN",
       fileName: file.originalname,
-      url: uploaded.secure_url,
-      publicId: uploaded.public_id
+      url: uploaded.url,
+      publicId: uploaded.publicId,
+      storage: uploaded.storage
     });
   }
 
@@ -165,13 +167,14 @@ const editCustomer = asyncHandler(async (req, res, next) => {
 
     for (let i = 0; i < companyFiles.length; i++) {
       const file = companyFiles[i];
-      const uploaded = await uploadToCloudinary(file, "crm/customers/company");
+      const uploaded = await uploadDocument(file, "crm/customers/company");
 
       customer.documents.companyDocuments.push({
         documentType: compDocTypes[i] || "Company PAN",
         fileName: file.originalname,
-        url: uploaded.secure_url,
-        publicId: uploaded.public_id
+        url: uploaded.url,
+        publicId: uploaded.publicId,
+        storage: uploaded.storage
       });
     }
   }
@@ -184,13 +187,14 @@ const editCustomer = asyncHandler(async (req, res, next) => {
 
     for (let i = 0; i < signatoryFiles.length; i++) {
       const file = signatoryFiles[i];
-      const uploaded = await uploadToCloudinary(file, "crm/customers/signatory");
+      const uploaded = await uploadDocument(file, "crm/customers/signatory");
 
       customer.documents.signatoryDocuments.push({
         documentType: sigDocTypes[i] || "PAN",
         fileName: file.originalname,
-        url: uploaded.secure_url,
-        publicId: uploaded.public_id
+        url: uploaded.url,
+        publicId: uploaded.publicId,
+        storage: uploaded.storage
       });
     }
   }
