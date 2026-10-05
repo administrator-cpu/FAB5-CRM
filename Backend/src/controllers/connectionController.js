@@ -6,6 +6,9 @@ const { generateGlobalPoNumber, getPdfTemplatePath, generatePoExcel, generatePoP
 const Connection = require("../models/connectionModel");
 const Customer = require("../models/customerModel");
 const { uploadDocument } = require("../services/upload.service");
+const { createGeneratedCaf } = require("../services/caf.service");
+const { createGeneratedPo } = require("../services/po.service");
+const generateOpportunityId = require("../services/opportunityId.service");
 const { sendConnectionEmail, sendChangeEmail } = require("../services/sendEmail");
 const emailQueue = require("../queue/email.queue");
 const asyncHandler = require("../utils/asyncHandler");
@@ -46,7 +49,7 @@ const createConnection = asyncHandler(async (req, res, next) => {
     telcoProvider,
     serviceType, bandwidth,
     mrc, otc, advance, ratePerMb, remarks,
-    ipCount, ipCost,
+    ipCount, ipCost, billingProfileId,
   } = req.body;
 
 
@@ -61,11 +64,11 @@ const createConnection = asyncHandler(async (req, res, next) => {
     return next(new AppError("You can only create orders for your own customers", 403));
   }
 
-  if (!req.files || !req.files.purchaseOrder || !req.files.purchaseOrder[0] || req.files.purchaseOrder[0].size === 0) {
-    return next(new AppError("A valid purchase order is required", 400));
-  }
-  if (!req.files || !req.files.caf || !req.files.caf[0] || req.files.caf[0].size === 0) {
-    return next(new AppError("A valid CAF is required", 400));
+  // Billing address printed on the generated CAF / PO (falls back to the first profile when none is chosen).
+  let billing = customer.billingProfile?.[0];
+  if (billingProfileId) {
+    billing = customer.billingProfile.id(billingProfileId);
+    if (!billing) return next(new AppError("Selected billing address does not belong to this customer", 400));
   }
 
   let purchaseOrders = [];
@@ -73,7 +76,8 @@ const createConnection = asyncHandler(async (req, res, next) => {
   let caf = null;
 
   if (req.files) {
-    if (req.files.purchaseOrder && req.files.purchaseOrder[0]) {
+    // An uploaded PO (e.g. a signed copy) takes priority over the generated one.
+    if (req.files.purchaseOrder && req.files.purchaseOrder[0] && req.files.purchaseOrder[0].size > 0) {
       const file = req.files.purchaseOrder[0];
       const uploaded = await uploadDocument(file, "crm/connections/purchaseOrders");
       purchaseOrders.push({
@@ -98,7 +102,8 @@ const createConnection = asyncHandler(async (req, res, next) => {
       }
     }
 
-    if (req.files.caf && req.files.caf[0]) {
+    // An uploaded CAF (e.g. a signed copy) takes priority over the generated one.
+    if (req.files.caf && req.files.caf[0] && req.files.caf[0].size > 0) {
       const file = req.files.caf[0];
       const uploaded = await uploadDocument(file, "crm/connections/cafs");
       caf = {
@@ -110,7 +115,26 @@ const createConnection = asyncHandler(async (req, res, next) => {
     }
   }
 
+  // Generated up front so the CAF can carry it; the pre-save hook skips ids that are already set.
+  const opportunityId = generateOpportunityId();
+
+  const orderDetails = {
+    serviceType, bandwidth, ratePerMb, mrc, otc, ipCount,
+    aEndBtsId: AbtsId, aEndAddress: Aaddress, bEndBtsId: BbtsId, bEndAddress: Baddress,
+  };
+
+  if (purchaseOrders.length === 0) {
+    const po = await createGeneratedPo({ opportunityId, customer, billing, connection: orderDetails });
+    purchaseOrders.push({ ...po, requestType: "CREATED" });
+  }
+
+  if (!caf) {
+    caf = await createGeneratedCaf({ opportunityId, customer, billing, connection: orderDetails });
+  }
+
   const connection = await Connection.create({
+    opportunityId,
+    fabCircuitId: opportunityId,
     customer: customerId,
     createdBy: req.user._id,
     serviceType,
