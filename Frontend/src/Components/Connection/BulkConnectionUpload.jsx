@@ -49,14 +49,14 @@ function BulkConnectionUpload({ customerId }) {
     e.preventDefault();
 
     if (invalidRows.length > 0) return toast.error("Fix the red errors first!");
-    if (!poFile || !cafFile) return toast.error("PO and CAF documents are required!");
+    if (!poFile) return toast.error("PO document is required!");
     if (validRows.length === 0) return toast.error("No valid data to submit.");
 
     setIsSubmitting(true);
     const formData = new FormData();
 
     formData.append("purchaseOrder", poFile);
-    formData.append("caf", cafFile);
+    if (cafFile) formData.append("caf", cafFile);
     if (agreementFile) formData.append("businessAgreement", agreementFile);
 
     // Stringify the array as discussed!
@@ -169,8 +169,8 @@ function BulkConnectionUpload({ customerId }) {
             </div>
             
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-gray-700">CAF Document *</label>
-              <input type="file" required onChange={(e) => setCafFile(e.target.files[0])} accept=".pdf, application/pdf" className="border p-2 rounded" />
+              <label className="text-sm font-semibold text-gray-700">CAF Document <span className="text-gray-400 font-normal">(Optional — auto-generated per connection if empty)</span></label>
+              <input type="file" onChange={(e) => setCafFile(e.target.files[0])} accept=".pdf, application/pdf" className="border p-2 rounded" />
             </div>
 
             <div className="flex flex-col gap-2">

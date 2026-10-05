@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { InputUnitFlow } from "../Utils/InputUnit";
 import { useConnection } from "../../Context/ConnectionContext";
+import { useCustomer } from "../../Context/CustomerContext";
 import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Network, MapPin, CreditCard, FileText, UploadCloud, CheckCircle2, MessageSquare } from "lucide-react";
@@ -16,11 +17,17 @@ const init = {
 
 const CreateConnection = () => {
   const { createConnection, getConnection } = useConnection();
+  const { customerInformation } = useCustomer();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { id } = useParams();
   const navigate = useNavigate();
 
   const [data, setData] = useState(init);
+
+  // Billing address printed on the generated CAF / PO — chosen per connection.
+  const billingProfiles = customerInformation?._id === id ? customerInformation.billingProfile || [] : [];
+  const [billingProfileId, setBillingProfileId] = useState("");
+  const selectedBillingId = billingProfiles.length === 1 ? billingProfiles[0]._id : billingProfileId;
 
   const [files, setFiles] = useState({
     purchaseOrder: null,
@@ -50,8 +57,7 @@ const CreateConnection = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!files.purchaseOrder) return toast.error("Purchase Order (PO) is mandatory!");
-    if (!files.caf) return toast.error("CAF Document is mandatory!");
+    if (billingProfiles.length > 1 && !selectedBillingId) return toast.error("Please select a billing address!");
 
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -81,6 +87,7 @@ const CreateConnection = () => {
         formData.append(key, textPayload[key]);
       });
 
+      if (selectedBillingId) formData.append("billingProfileId", selectedBillingId);
       if (files.purchaseOrder) formData.append("purchaseOrder", files.purchaseOrder);
       if (files.caf) formData.append("caf", files.caf);
       if (files.businessAgreement) formData.append("businessAgreement", files.businessAgreement);
@@ -208,7 +215,26 @@ const CreateConnection = () => {
             </div>
             <div className="p-6 md:p-8 flex flex-col gap-8">
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-700">
+                  Billing Address {billingProfiles.length > 1 && <span className="text-red-500">*</span>}
+                  <span className="text-slate-400 font-normal"> (printed on the CAF & PO)</span>
+                </label>
+                {billingProfiles.length === 0 ? (
+                  <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">No billing address saved for this customer — N/A will be printed.</p>
+                ) : (
+                  <select value={selectedBillingId} onChange={(e) => setBillingProfileId(e.target.value)} disabled={billingProfiles.length === 1} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all disabled:opacity-80" required={billingProfiles.length > 1}>
+                    <option value="" disabled>Select billing address...</option>
+                    {billingProfiles.map((profile, i) => (
+                      <option key={profile._id} value={profile._id}>
+                        {[profile.label || `Billing ${i + 1}`, profile.gstNumber || "No GST", [profile.address?.city, profile.address?.state].filter(Boolean).join(", ")].filter(Boolean).join(" — ")}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-100">
                 <div className="flex items-end gap-2">
                   <div className="flex-1"><InputUnitFlow type="number" placeholder="e.g. 500" name="bandwidth" value={bandwidth} change={handleChange} label="Bandwidth" required /></div>
                   <span className="pb-5 font-medium text-slate-500">Mbps</span>
@@ -261,11 +287,11 @@ const CreateConnection = () => {
 
             <div className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
 
-              {/* Purchase Order (Required) */}
+              {/* Purchase Order (Optional — auto-generated when not uploaded) */}
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-semibold text-slate-700">Purchase Order (PO) <span className="text-red-500">*</span></label>
+                <label className="text-sm font-semibold text-slate-700">Purchase Order (PO) <span className="text-slate-400 font-normal">(Opt — auto-generated if empty)</span></label>
                 <div className={`relative border-2 border-dashed rounded-xl p-6 transition-all text-center h-full flex flex-col justify-center ${files.purchaseOrder ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 hover:border-blue-400 bg-slate-50/50'}`}>
-                  <input type="file" name="purchaseOrder" accept=".pdf, image/*" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" required />
+                  <input type="file" name="purchaseOrder" accept=".pdf, image/*" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                   {!files.purchaseOrder ? (
                     <div className="flex flex-col items-center gap-2 pointer-events-none">
                       <UploadCloud size={24} className="text-blue-500 mb-1" />
@@ -280,11 +306,11 @@ const CreateConnection = () => {
                 </div>
               </div>
 
-              {/* CAF Document (Required) */}
+              {/* CAF Document (Optional — auto-generated when not uploaded) */}
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-semibold text-slate-700">CAF Document <span className="text-red-500">*</span></label>
+                <label className="text-sm font-semibold text-slate-700">CAF Document <span className="text-slate-400 font-normal">(Opt — auto-generated if empty)</span></label>
                 <div className={`relative border-2 border-dashed rounded-xl p-6 transition-all text-center h-full flex flex-col justify-center ${files.caf ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 hover:border-blue-400 bg-slate-50/50'}`}>
-                  <input type="file" name="caf" accept=".pdf, image/*" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" required />
+                  <input type="file" name="caf" accept=".pdf, image/*" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                   {!files.caf ? (
                     <div className="flex flex-col items-center gap-2 pointer-events-none">
                       <UploadCloud size={24} className="text-blue-500 mb-1" />

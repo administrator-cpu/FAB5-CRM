@@ -1,6 +1,7 @@
 const ExcelJS = require('exceljs');
 const { generateTemplate } = require('../services/bulkConnection.service');
 const { uploadDocument } = require('../services/upload.service');
+const { createGeneratedCaf } = require('../services/caf.service');
 const generateOpportunityId = require('../services/opportunityId.service');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
@@ -207,10 +208,6 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
   if (!req.files || !req.files.purchaseOrder || !req.files.purchaseOrder[0]) {
     return next(new AppError("Purchase order is required", 400));
   }
-  if (!req.files || !req.files.caf || !req.files.caf[0]) {
-    return next(new AppError("CAF is required", 400));
-  }
-
   if (!req.body.connections) {
     return next(new AppError("No Connection Provided", 400));
   }
@@ -244,13 +241,41 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
     requestType: "CREATED",
   }];
 
-  const cafUpload = await uploadDocument(req.files.caf[0], "crm/connections/cafs");
-  const sharedCaf = {
-    fileName: req.files.caf[0].originalname,
-    url: cafUpload.url,
-    publicId: cafUpload.publicId,
-    storage: cafUpload.storage
-  };
+  // A CAF uploaded with the batch is shared by every row; otherwise each connection gets its own generated CAF.
+  let sharedCaf = null;
+  if (req.files.caf && req.files.caf[0] && req.files.caf[0].size > 0) {
+    const cafUpload = await uploadDocument(req.files.caf[0], "crm/connections/cafs");
+    sharedCaf = {
+      fileName: req.files.caf[0].originalname,
+      url: cafUpload.url,
+      publicId: cafUpload.publicId,
+      storage: cafUpload.storage
+    };
+  }
+
+  const usedOpportunityIds = new Set();
+  const rowMeta = [];
+  for (const row of validRows) {
+    let opportunityId;
+    do { opportunityId = generateOpportunityId(); } while (usedOpportunityIds.has(opportunityId));
+    usedOpportunityIds.add(opportunityId);
+
+    const caf = sharedCaf || await createGeneratedCaf({
+      opportunityId,
+      customer,
+      connection: {
+        serviceType: row.serviceType,
+        bandwidth: row.bandwidth,
+        ratePerMb: row.ratePerMb,
+        aEndBtsId: row.AbtsId,
+        aEndAddress: row.Aaddress,
+        bEndBtsId: row.BbtsId,
+        bEndAddress: row.Baddress,
+        ipCount: row.ipCount,
+      },
+    });
+    rowMeta.push({ opportunityId, caf });
+  }
 
   let sharedBusinessAgreement = null;
   if (req.files.businessAgreement && req.files.businessAgreement[0]) {
@@ -263,14 +288,16 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
     };
   }
 
-  const connectionsToInsert = validRows.map(row => ({
+  const connectionsToInsert = validRows.map((row, index) => ({
+    opportunityId: rowMeta[index].opportunityId,
+    fabCircuitId: rowMeta[index].opportunityId,
     customer: customer._id,
     createdBy: req.user._id,
     serviceType: row.serviceType,
     bandwidth: row.bandwidth,
     remarks: row.remarks || "",
     purchaseOrders: sharedPurchaseOrders,
-    caf: sharedCaf,
+    caf: rowMeta[index].caf,
     businessAgreement: sharedBusinessAgreement || undefined,
     technicalDetails: {
       aEnd: {
