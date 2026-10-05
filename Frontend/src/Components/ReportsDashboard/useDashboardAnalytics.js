@@ -262,75 +262,154 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     return { connections: mappedConnections, totalRiskMRR };
   }, [allData, pmData, isProjectManager]);
 
-  const churnAnalytics = useMemo(() => {
-    const allConnections = isProjectManager ? pmData : (allData?.connections || []);
-    const customersById = new Map((allData?.customers || []).map((c) => [String(c._id), c]));
-    const connections = (allConnections || []).filter((c) => isCountableConnection(c, customersById));
+// const churnAnalytics = useMemo(() => {
+//   const allConnections = isProjectManager ? pmData : (allData?.connections || []);
+//   const customersById = new Map((allData?.customers || []).map((c) => [String(c._id), c]));
+//   const connections = (allConnections || []).filter((c) => isCountableConnection(c, customersById));
 
-    const monthlyData = new Map();
-    const cutoffDate = new Date('2026-04-01T00:00:00Z');
+//   const monthlyData = new Map();
+//   const cutoffDate = new Date('2026-04-01T00:00:00Z');
 
-    connections.forEach(conn => {
-      const { mrc, ipsCost } = getTrueCommercials(conn);
-      const currentTrueRevenue = mrc + ipsCost; // Used for BOTH activation and churn revenue
+//   connections.forEach((conn) => {
+//     const { mrc, ipsCost } = getTrueCommercials(conn);
+//     const currentTrueRevenue = mrc + ipsCost; // Used for BOTH activation and churn revenue
 
-      let firstActivationDate = null;
-      let lastTerminationDate = null;
+//     // Helper to apply values to the monthly map (defined before use)
+//     const processEvent = (date, isActivation) => {
+//       if (!date || date < cutoffDate) return;
 
-      // 1. Scan history to find exact dates
-      conn.history?.forEach(event => {
-        if (!event.date) return;
-        const eventDate = new Date(event.date);
-        if (isNaN(eventDate.getTime())) return;
+//       const monthKey = date
+//         .toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })
+//         .replace(' ', " '");
 
-        if (event.action === 'ACTIVATED') {
-          if (!firstActivationDate || eventDate < firstActivationDate) {
-            firstActivationDate = eventDate;
-          }
-        } else if (TERMINATING_HISTORY_ACTIONS.includes(event.action)) {
-          if (!lastTerminationDate || eventDate > lastTerminationDate) {
-            lastTerminationDate = eventDate;
-          }
-        }
+//       if (!monthlyData.has(monthKey)) {
+//         monthlyData.set(monthKey, {
+//           month: monthKey,
+//           rawDate: new Date(date.getFullYear(), date.getMonth(), 1),
+//           Activated: 0,
+//           Churned: 0,
+//           Revenue: 0,
+//           ChurnMRR: 0,
+//         });
+//       }
+
+//       const monthGroup = monthlyData.get(monthKey);
+
+//       if (isActivation) {
+//         monthGroup.Activated += 1;
+//         monthGroup.Revenue += currentTrueRevenue;
+//       } else {
+//         monthGroup.Churned += 1;
+//         monthGroup.ChurnMRR += currentTrueRevenue;
+//       }
+//     };
+
+//     // 1. Collect every activation and termination date from history
+//     const activationDates = [];
+//     const terminationDates = [];
+
+//     (conn.history || []).forEach((event) => {
+//       if (!event.date) return;
+//       const eventDate = new Date(event.date);
+//       if (isNaN(eventDate.getTime())) return;
+
+//       if (event.action === 'ACTIVATED') {
+//         activationDates.push(eventDate);
+//       } else if (TERMINATING_HISTORY_ACTIONS.includes(event.action)) {
+//         terminationDates.push(eventDate);
+//       }
+//     });
+
+//     // 2. Process every event
+//     activationDates.forEach((d) => processEvent(d, true));
+//     terminationDates.forEach((d) => processEvent(d, false));
+//   });
+
+//   return Array.from(monthlyData.values())
+//     .sort((a, b) => a.rawDate - b.rawDate)
+//     .filter((r) => r.Revenue !== 0 || r.ChurnMRR !== 0 || r.Activated !== 0 || r.Churned !== 0);
+// }, [allData, pmData, isProjectManager]);
+
+const churnAnalytics = useMemo(() => {
+  const allConnections = isProjectManager ? pmData : (allData?.connections || []);
+  const customersById = new Map((allData?.customers || []).map((c) => [String(c._id), c]));
+  const connections = (allConnections || []).filter((c) => isCountableConnection(c, customersById));
+
+  const monthlyData = new Map();
+  const cutoffDate = new Date('2026-04-01T00:00:00Z');
+
+  const getMonthGroup = (date) => {
+    const monthKey = date
+      .toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })
+      .replace(' ', " '");
+
+    if (!monthlyData.has(monthKey)) {
+      monthlyData.set(monthKey, {
+        month: monthKey,
+        rawDate: new Date(date.getFullYear(), date.getMonth(), 1),
+        Activated: 0,   // new activations + upgrades
+        Upgraded: 0,    // subset of Activated that were upgrades
+        Churned: 0,
+        Revenue: 0,     // MRR from new activations + MRR added by upgrades
+        ChurnMRR: 0,
       });
+    }
+    return monthlyData.get(monthKey);
+  };
 
-      // 2. Helper to apply values to the monthly map
-      const processEvent = (date, isActivation) => {
-        if (!date || date < cutoffDate) return;
-        
-        const monthKey = date.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }).replace(' ', " '");
-        
-        if (!monthlyData.has(monthKey)) {
-          monthlyData.set(monthKey, {
-            month: monthKey,
-            rawDate: new Date(date.getFullYear(), date.getMonth(), 1),
-            Activated: 0,
-            Churned: 0,
-            Revenue: 0,
-            ChurnMRR: 0
-          });
+  // Revenue stored on a single history entry
+  const entryRevenue = (h) =>
+    Number(h.commercials?.mrc || 0) + Number(h.ips?.cost || 0);
+
+  connections.forEach((conn) => {
+    const { mrc, ipsCost } = getTrueCommercials(conn);
+    const currentTrueRevenue = mrc + ipsCost; // used for churn
+
+    let seenFirstActivation = false;
+    let prevRevenue = 0; // last confirmed price as we walk the history
+
+    (conn.history || []).forEach((event) => {
+      if (!event.date) return;
+      const eventDate = new Date(event.date);
+      if (isNaN(eventDate.getTime())) return;
+
+      const hasPrice =
+        PRICE_CONFIRMING_ACTIONS.includes(event.action) && event.commercials;
+      const revenueAtEvent = hasPrice ? entryRevenue(event) : prevRevenue;
+
+      if (eventDate >= cutoffDate) {
+        // New activation: first ACTIVATED only, full MRR
+        if (event.action === 'ACTIVATED' && !seenFirstActivation) {
+          const g = getMonthGroup(eventDate);
+          g.Activated += 1;
+          g.Revenue += revenueAtEvent;
         }
 
-        const monthGroup = monthlyData.get(monthKey);
-
-        if (isActivation) {
-          monthGroup.Activated += 1;
-          monthGroup.Revenue += currentTrueRevenue;
-        } else {
-          monthGroup.Churned += 1;
-          monthGroup.ChurnMRR += currentTrueRevenue;
+        // Upgrade: count it, and add only the MRR increase
+        else if (event.action === 'UPGRADE') {
+          const g = getMonthGroup(eventDate);
+          g.Activated += 1;
+          g.Upgraded += 1;
+          g.Revenue += Math.max(0, revenueAtEvent - prevRevenue);
         }
-      };
 
-      // 3. Process the found dates
-      processEvent(firstActivationDate, true);
-      processEvent(lastTerminationDate, false);
+        // Termination (unchanged behavior: every TERMINATED counts as churn)
+        else if (TERMINATING_HISTORY_ACTIONS.includes(event.action)) {
+          const g = getMonthGroup(eventDate);
+          g.Churned += 1;
+          g.ChurnMRR += currentTrueRevenue;
+        }
+      }
+
+      if (event.action === 'ACTIVATED') seenFirstActivation = true;
+      if (hasPrice) prevRevenue = revenueAtEvent;
     });
+  });
 
-    return Array.from(monthlyData.values())
-      .sort((a, b) => a.rawDate - b.rawDate)
-      .filter(r => r.Revenue !== 0 || r.ChurnMRR !== 0 || r.Activated !== 0 || r.Churned !== 0);
-  }, [allData, pmData, isProjectManager]);
+  return Array.from(monthlyData.values())
+    .sort((a, b) => a.rawDate - b.rawDate)
+    .filter((r) => r.Revenue !== 0 || r.ChurnMRR !== 0 || r.Activated !== 0 || r.Churned !== 0);
+}, [allData, pmData, isProjectManager]);
 
   const productAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections) return [];
