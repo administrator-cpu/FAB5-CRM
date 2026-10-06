@@ -91,6 +91,12 @@ export const ConnectionService = {
 
     return data;
   },
+  updateTopology: async (id, payload) => {
+    const { data } = await api.patch(`/connection/${id}/topology`, payload, {
+      withCredentials: true,
+    });
+    return data;
+  },
   uploadSignedDocuments: async (id, payload) => {
     const { data } = await api.patch(`/connection/${id}/signed-documents`, payload, {
       withCredentials: true,

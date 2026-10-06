@@ -9,7 +9,7 @@ const {
   markAsGeneration, cancelConnection, deleteConnection, activateConnection,
   editConnection, updateCoordinates, shiftConnection, addIp, undoDisconnection,
   getProjectManagerReport, downloadDocument, transferConnections, removeTransferLog, checkDuplicateTelcoCircuitIds,
-  uploadSignedDocuments
+  uploadSignedDocuments, updateTopology
 } = require("../controllers/connectionController");
 const { updateDashboardMetricsPostResponse } = require("../middlewares/realtimeMiddleware");
 
@@ -30,6 +30,7 @@ router.patch("/:id/approve", protect, updateDashboardMetricsPostResponse, author
 router.patch("/:id/reject", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN, ROLES.OWNER, ROLES.ORDER_GENERATION, ROLES.PROJECT_MANAGER), rejectConnection);
 router.post("/:id/undo", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), undoDisconnection);
 router.patch("/:id/delete", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), deleteConnection);
+router.patch("/:id/topology", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), updateTopology);
 router.put("/:id/coordinates", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), updateCoordinates);
 router.patch("/:id/edit-rejected", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), editRejectedConnection);
 router.patch("/:id/cancel", protect, updateDashboardMetricsPostResponse, authorize(ROLES.PROJECT_MANAGER, ROLES.ADMIN), cancelConnection);

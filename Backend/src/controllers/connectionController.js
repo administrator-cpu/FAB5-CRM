@@ -1326,6 +1326,77 @@ const updateCoordinates = asyncHandler(async (req, res, next) => {
   });
 });
 
+// Admin-only edit of the network topology (A-End / B-End BTS ID, address and coordinates).
+const TOPOLOGY_FIELDS = [
+  ["btsId", "BTS ID"],
+  ["address", "Address"],
+  ["latitude", "Latitude"],
+  ["longitude", "Longitude"],
+];
+
+const updateTopology = asyncHandler(async (req, res, next) => {
+  if (req.user.role !== ROLES.ADMIN) {
+    return next(new AppError("Access denied. Only Admins can edit the network topology.", 403));
+  }
+
+  const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
+  if (!connection) return next(new AppError("Connection not found", 404));
+
+  connection.technicalDetails = connection.technicalDetails || {};
+  // ILL links have no B-End, so only the A-End can be edited for them.
+  const ends = connection.serviceType === "ILL" ? [["aEnd", "A-End"]] : [["aEnd", "A-End"], ["bEnd", "B-End"]];
+  const changed = [];
+
+  for (const [endKey, endLabel] of ends) {
+    const input = req.body[endKey];
+    if (!input || typeof input !== "object") continue;
+    connection.technicalDetails[endKey] = connection.technicalDetails[endKey] || {};
+    const end = connection.technicalDetails[endKey];
+
+    for (const [field, fieldLabel] of TOPOLOGY_FIELDS) {
+      if (input[field] === undefined) continue;
+      const value = String(input[field] ?? "").trim();
+      if ((end[field] || "") !== value) {
+        end[field] = value;
+        changed.push(`${endLabel} ${fieldLabel}`);
+      }
+    }
+  }
+
+  if (changed.length === 0) {
+    return next(new AppError("No changes to save", 400));
+  }
+
+  connection.markModified("technicalDetails");
+  connection.history.push({
+    action: "EDITED",
+    performedBy: req.user._id,
+    date: new Date(),
+    note: `Admin updated network topology: ${changed.join(", ")}`,
+    ...buildSnapshot(connection),
+  });
+
+  await connection.save();
+  ioHelper.broadcastChange("connections_mutated", {
+    action: "EDITED",
+    id: connection._id
+  });
+  logger.info("Connection network topology updated", {
+    opportunityId: connection.opportunityId,
+    changed,
+    editedBy: req.user._id,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Network topology updated",
+    data: {
+      opportunityId: connection.opportunityId,
+      technicalDetails: connection.technicalDetails,
+    },
+  });
+});
+
 const migratePurchaseOrders = asyncHandler(async (req, res, next) => {
   const connectionsToMigrate = await Connection.find({
     purchaseOrder: { $exists: true, $ne: null },
@@ -1718,6 +1789,7 @@ const uploadSignedDocuments = asyncHandler(async (req, res, next) => {
 
 module.exports = {
   uploadSignedDocuments,
+  updateTopology,
   createConnection,
   connectionByCustomer,
   getConnectionById,
