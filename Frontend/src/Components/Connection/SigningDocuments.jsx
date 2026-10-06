@@ -51,6 +51,9 @@ const SigningDocuments = ({ connection, userRole, onUploaded }) => {
   const [files, setFiles] = useState({ caf: null, purchaseOrder: null });
   const [isUploading, setIsUploading] = useState(false);
 
+  // Signing documents (unsigned and signed) are only for employees and admins.
+  if (userRole !== "employee" && userRole !== "admin") return null;
+
   const generated = connection?.generatedDocuments;
   // Only connections created with the generate-then-sign flow have unsigned documents.
   if (!generated?.caf?.url && !generated?.po?.url) return null;
