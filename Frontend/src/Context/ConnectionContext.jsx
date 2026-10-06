@@ -106,6 +106,17 @@ export const ConnectionProvider = ({ children }) => {
     [getDashboardData],
   );
 
+  const uploadSignedDocuments = useCallback(
+    async (id, payload) => {
+      return await handleRequest(
+        () => ConnectionService.uploadSignedDocuments(id, payload),
+        "Signed documents uploaded",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
   const approveConnection = useCallback(
     async (id) => {
       return await handleRequest(
@@ -155,7 +166,7 @@ export const ConnectionProvider = ({ children }) => {
         } else {
           toast.error(error?.response?.data?.message || "Failed to generate", { id: tid });
         }
-        throw err;
+        throw error;
       }
     },
     [getDashboardData],
@@ -255,6 +266,7 @@ export const ConnectionProvider = ({ children }) => {
       singleConnectionData,
       setSingleConnectionData,
       approveConnection,
+      uploadSignedDocuments,
       activeConnection,
       Delete,
       Reject,
@@ -278,6 +290,7 @@ export const ConnectionProvider = ({ children }) => {
       getConnectionById,
       singleConnectionData,
       approveConnection,
+      uploadSignedDocuments,
       activeConnection,
       addIp,
       Reject,

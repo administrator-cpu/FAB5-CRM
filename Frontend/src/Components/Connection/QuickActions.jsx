@@ -43,6 +43,13 @@ const QuickActions = ({
   const latestAction = [...historyList].reverse().find(h => h.action !== 'APPROVED' && h.action !== 'REJECTED')?.action;
   const isIpAddition = latestAction === 'IP_ADDITION';
 
+  // A new order can't be approved until the signed CAF and signed PO are uploaded (enforced by the backend too).
+  const requestType = [...historyList].reverse()
+    .find(h => ['CREATED', 'UPGRADE', 'DOWNGRADE', 'SHIFTING', 'RATE_REVISION', 'IP_ADDITION'].includes(h.action))?.action;
+  const hasSignedDocuments = Boolean(connection?.caf?.url) &&
+    (connection?.purchaseOrders || []).some(po => po.requestType === 'CREATED' && po.url);
+  const awaitingSignedDocuments = requestType === 'CREATED' && !hasSignedDocuments;
+
   // 1. OWNER ACTIONS
   if (status === 'Pending' && (userRole === 'owner' || userRole === 'admin')) {
     return (
@@ -50,8 +57,13 @@ const QuickActions = ({
         <button onClick={onReject} className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-4 py-2 rounded text-sm font-semibold transition">
           Reject
         </button>
-        <button onClick={onApprove} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold shadow transition">
-          Approve Request
+        <button
+          onClick={onApprove}
+          disabled={awaitingSignedDocuments}
+          title={awaitingSignedDocuments ? "Signed CAF and signed PO must be uploaded first" : undefined}
+          className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded text-sm font-semibold shadow transition"
+        >
+          {awaitingSignedDocuments ? "Awaiting Signed Docs" : "Approve Request"}
         </button>
       </div>
     );

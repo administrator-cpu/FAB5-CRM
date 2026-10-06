@@ -30,8 +30,6 @@ const CreateConnection = () => {
   const selectedBillingId = billingProfiles.length === 1 ? billingProfiles[0]._id : billingProfileId;
 
   const [files, setFiles] = useState({
-    purchaseOrder: null,
-    caf: null,
     businessAgreement: null
   });
 
@@ -88,8 +86,6 @@ const CreateConnection = () => {
       });
 
       if (selectedBillingId) formData.append("billingProfileId", selectedBillingId);
-      if (files.purchaseOrder) formData.append("purchaseOrder", files.purchaseOrder);
-      if (files.caf) formData.append("caf", files.caf);
       if (files.businessAgreement) formData.append("businessAgreement", files.businessAgreement);
       
 
@@ -282,48 +278,15 @@ const CreateConnection = () => {
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden hover:shadow-md transition-shadow duration-300">
             <div className="bg-blue-50/50 border-b border-slate-100 p-5 flex items-center gap-3">
               <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><FileText size={20} /></div>
-              <h3 className="text-lg font-bold text-slate-800">Required Documents</h3>
+              <h3 className="text-lg font-bold text-slate-800">Documents</h3>
             </div>
 
+            <p className="mx-6 md:mx-8 mt-6 text-sm text-blue-800 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+              The CAF and PO are generated automatically after the connection is created. Download them from the connection page,
+              get them signed by the customer and upload the signed copies there.
+            </p>
+
             <div className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-
-              {/* Purchase Order (Optional — auto-generated when not uploaded) */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-semibold text-slate-700">Purchase Order (PO) <span className="text-slate-400 font-normal">(Opt — auto-generated if empty)</span></label>
-                <div className={`relative border-2 border-dashed rounded-xl p-6 transition-all text-center h-full flex flex-col justify-center ${files.purchaseOrder ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 hover:border-blue-400 bg-slate-50/50'}`}>
-                  <input type="file" name="purchaseOrder" accept=".pdf, image/*" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                  {!files.purchaseOrder ? (
-                    <div className="flex flex-col items-center gap-2 pointer-events-none">
-                      <UploadCloud size={24} className="text-blue-500 mb-1" />
-                      <p className="text-sm font-semibold text-slate-700">Upload PO</p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 pointer-events-none">
-                      <CheckCircle2 size={24} className="text-emerald-600 mb-1" />
-                      <p className="text-sm font-bold text-emerald-800 truncate px-2 max-w-full w-full">{files.purchaseOrder.name}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* CAF Document (Optional — auto-generated when not uploaded) */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-semibold text-slate-700">CAF Document <span className="text-slate-400 font-normal">(Opt — auto-generated if empty)</span></label>
-                <div className={`relative border-2 border-dashed rounded-xl p-6 transition-all text-center h-full flex flex-col justify-center ${files.caf ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 hover:border-blue-400 bg-slate-50/50'}`}>
-                  <input type="file" name="caf" accept=".pdf, image/*" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                  {!files.caf ? (
-                    <div className="flex flex-col items-center gap-2 pointer-events-none">
-                      <UploadCloud size={24} className="text-blue-500 mb-1" />
-                      <p className="text-sm font-semibold text-slate-700">Upload CAF</p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 pointer-events-none">
-                      <CheckCircle2 size={24} className="text-emerald-600 mb-1" />
-                      <p className="text-sm font-bold text-emerald-800 truncate px-2 max-w-full w-full">{files.caf.name}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
 
               {/* Business Agreement (Optional) */}
               <div className="flex flex-col gap-2">

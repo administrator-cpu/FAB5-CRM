@@ -24,6 +24,7 @@ const getActionTheme = (action) => {
   switch (action) {
     case 'CREATED':
     case 'GENERATION':
+    case 'SIGNED_DOCUMENT_UPLOADED':
       return { color: 'bg-blue-100 text-blue-700 border-blue-200', dot: 'bg-blue-500' };
     case 'APPROVED':
     case 'ACTIVATED':

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import HistoryTimeline from "./HistoryTimeline";
 import { useAuth } from "../../Context/AuthContext";
 import QuickActions from "./QuickActions";
+import SigningDocuments from "./SigningDocuments";
 import { X, Trash2, AlertTriangle } from "lucide-react"; // Added Trash2 and AlertTriangle
 import { InputUnit } from "../Utils/InputUnit";
 import { Edit, Send } from "../Icons/Icons";
@@ -417,6 +418,8 @@ function OpportunityDetails() {
             )}
           </div>
         </div>
+
+        <SigningDocuments connection={data} userRole={user?.role} onUploaded={() => getConnectionById(cid)} />
 
         {/* CONNECTION DOCUMENTS */}
         {(user?.role == "admin" || user?.role == "owner" || user?.role == "employee") &&

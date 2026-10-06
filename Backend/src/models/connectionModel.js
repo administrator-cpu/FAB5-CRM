@@ -24,6 +24,7 @@ const HistoryEntrySchema = new mongoose.Schema({
       "TERMINATED",
       "TRANSFERRED",
       "DELETED",
+      "SIGNED_DOCUMENT_UPLOADED",
     ],
     required: true,
   },
@@ -169,6 +170,24 @@ const ConnectionSchema = new mongoose.Schema(
       publicId: String,
       storage: { type: String, enum: ["cloudinary", "local"] }, // absent = cloudinary (legacy)
       uploadedAt: { type: Date, default: Date.now }
+    },
+    // Unsigned CAF / PO generated at creation, handed to the customer for signing.
+    // The signed copies uploaded later become the official `caf` / `purchaseOrders` (CREATED) documents.
+    generatedDocuments: {
+      caf: {
+        fileName: String,
+        url: String,
+        publicId: String,
+        storage: { type: String, enum: ["cloudinary", "local"] },
+        generatedAt: { type: Date },
+      },
+      po: {
+        fileName: String,
+        url: String,
+        publicId: String,
+        storage: { type: String, enum: ["cloudinary", "local"] },
+        generatedAt: { type: Date },
+      },
     },
     businessAgreement: {
       fileName: String,
