@@ -106,6 +106,17 @@ export const ConnectionProvider = ({ children }) => {
     [getDashboardData],
   );
 
+  const updateTopology = useCallback(
+    async (id, payload) => {
+      return await handleRequest(
+        () => ConnectionService.updateTopology(id, payload),
+        "Network topology updated",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
   const uploadSignedDocuments = useCallback(
     async (id, payload) => {
       return await handleRequest(
@@ -267,6 +278,7 @@ export const ConnectionProvider = ({ children }) => {
       setSingleConnectionData,
       approveConnection,
       uploadSignedDocuments,
+      updateTopology,
       activeConnection,
       Delete,
       Reject,
@@ -291,6 +303,7 @@ export const ConnectionProvider = ({ children }) => {
       singleConnectionData,
       approveConnection,
       uploadSignedDocuments,
+      updateTopology,
       activeConnection,
       addIp,
       Reject,

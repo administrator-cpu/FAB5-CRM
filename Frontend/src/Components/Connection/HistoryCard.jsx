@@ -5,6 +5,7 @@ import HistoryTimeline from "./HistoryTimeline";
 import { useAuth } from "../../Context/AuthContext";
 import QuickActions from "./QuickActions";
 import SigningDocuments from "./SigningDocuments";
+import NetworkTopology from "./NetworkTopology";
 import { X, Trash2, AlertTriangle } from "lucide-react"; // Added Trash2 and AlertTriangle
 import { InputUnit } from "../Utils/InputUnit";
 import { Edit, Send } from "../Icons/Icons";
@@ -381,43 +382,7 @@ function OpportunityDetails() {
         )}
 
         {/* NETWORK TOPOLOGY */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mt-6">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4 border-b pb-2">Network Topology</h2>
-          <div className={`grid grid-cols-1 ${data.serviceType === "ILL" ? "md:grid-cols-2" : "md:grid-cols-3"} gap-6`}>
-            <div className="bg-gray-50 p-3 rounded border">
-              <h3 className="text-[10px] uppercase font-bold text-indigo-500 mb-2">A-End Location</h3>
-              <p className="text-sm font-medium text-gray-900 mb-1">BTS: {data.technicalDetails?.aEnd?.btsId || "Not Assigned"}</p>
-              <p className="text-xs text-gray-600">{data.technicalDetails?.aEnd?.address || "No address provided"}</p>
-            </div>
-
-            {data.serviceType !== "ILL" ? (
-              <>
-                <div className="flex flex-col items-center justify-center text-center p-3">
-                  <div className="w-full h-px bg-gray-300 mb-2"></div>
-                  <span className="bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                    {data.technicalDetails?.telcoProvider || "Unknown Provider"}
-                  </span>
-                  <div className="w-full h-px bg-gray-300 mt-2"></div>
-                </div>
-                <div className="bg-gray-50 p-3 rounded border">
-                  <h3 className="text-[10px] uppercase font-bold text-indigo-500 mb-2">B-End Location</h3>
-                  <p className="text-sm font-medium text-gray-900 mb-1">BTS: {data.technicalDetails?.bEnd?.btsId || "Not Assigned"}</p>
-                  <p className="text-xs text-gray-600">{data.technicalDetails?.bEnd?.address || "No address provided"}</p>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col justify-center items-start p-3">
-                <span className="bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider mb-1 border border-indigo-200">
-                  {data.technicalDetails?.telcoProvider || "Unknown"} Provider
-                </span>
-                <span className="text-xs font-semibold text-gray-500 flex items-center gap-1 mt-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  Direct to Internet (ILL)
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
+        <NetworkTopology connection={data} isAdmin={user?.role === "admin"} onSaved={() => getConnectionById(cid)} />
 
         <SigningDocuments connection={data} userRole={user?.role} onUploaded={() => getConnectionById(cid)} />
 
