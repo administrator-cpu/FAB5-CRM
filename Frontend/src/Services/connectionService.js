@@ -91,6 +91,12 @@ export const ConnectionService = {
 
     return data;
   },
+  uploadSignedDocuments: async (id, payload) => {
+    const { data } = await api.patch(`/connection/${id}/signed-documents`, payload, {
+      withCredentials: true,
+    });
+    return data;
+  },
   putConnection: async (id, payload) => {
     const { data } = await api.put(`/connection/${id}/edit`, payload, {
       withCredentials: true,

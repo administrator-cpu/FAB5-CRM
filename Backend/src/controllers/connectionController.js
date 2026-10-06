@@ -35,6 +35,16 @@ const getRequestType = (historyArray) => {
   return definingAction ? definingAction.action : "CREATED";
 };
 
+// Signed CAF + signed PO (the CREATED entry) are required before a new order can be approved.
+const hasSignedDocuments = (connection) =>
+  Boolean(connection.caf?.url) &&
+  connection.purchaseOrders.some((po) => po.requestType === "CREATED" && po.url);
+
+// Signed copies can be replaced until the order is first approved.
+const areSignedDocumentsLocked = (connection) =>
+  !["Pending", "Rejected"].includes(connection.status) ||
+  connection.history.some((entry) => ["APPROVED", "ACTIVATED"].includes(entry.action));
+
 const withCreatedBy = async (connectionId) => {
   return await Connection
     .findById(connectionId)
@@ -71,66 +81,32 @@ const createConnection = asyncHandler(async (req, res, next) => {
     if (!billing) return next(new AppError("Selected billing address does not belong to this customer", 400));
   }
 
-  let purchaseOrders = [];
   let businessAgreement = null;
-  let caf = null;
-
-  if (req.files) {
-    // An uploaded PO (e.g. a signed copy) takes priority over the generated one.
-    if (req.files.purchaseOrder && req.files.purchaseOrder[0] && req.files.purchaseOrder[0].size > 0) {
-      const file = req.files.purchaseOrder[0];
-      const uploaded = await uploadDocument(file, "crm/connections/purchaseOrders");
-      purchaseOrders.push({
-        fileName: file.originalname,
-        url: uploaded.url,
-        publicId: uploaded.publicId,
-        storage: uploaded.storage,
-        requestType: "CREATED"
-      });
-    }
-
-    if (req.files.businessAgreement && req.files.businessAgreement[0]) {
-      const file = req.files.businessAgreement[0];
-      if (file.size > 0) {
-        const uploaded = await uploadDocument(file, "crm/connections/businessAgreements");
-        businessAgreement = {
-          fileName: file.originalname,
-          url: uploaded.url,
-          publicId: uploaded.publicId,
-          storage: uploaded.storage,
-        };
-      }
-    }
-
-    // An uploaded CAF (e.g. a signed copy) takes priority over the generated one.
-    if (req.files.caf && req.files.caf[0] && req.files.caf[0].size > 0) {
-      const file = req.files.caf[0];
-      const uploaded = await uploadDocument(file, "crm/connections/cafs");
-      caf = {
-        fileName: file.originalname,
-        url: uploaded.url,
-        publicId: uploaded.publicId,
-        storage: uploaded.storage,
-      };
-    }
+  const businessAgreementFile = req.files?.businessAgreement?.[0];
+  if (businessAgreementFile && businessAgreementFile.size > 0) {
+    const uploaded = await uploadDocument(businessAgreementFile, "crm/connections/businessAgreements");
+    businessAgreement = {
+      fileName: businessAgreementFile.originalname,
+      url: uploaded.url,
+      publicId: uploaded.publicId,
+      storage: uploaded.storage,
+    };
   }
 
   // Generated up front so the CAF can carry it; the pre-save hook skips ids that are already set.
   const opportunityId = generateOpportunityId();
 
+  // Unsigned CAF / PO for the customer to sign — the signed copies are uploaded later
+  // (uploadSignedDocuments) and only those become the official documents.
   const orderDetails = {
     serviceType, bandwidth, ratePerMb, mrc, otc, ipCount,
     aEndBtsId: AbtsId, aEndAddress: Aaddress, bEndBtsId: BbtsId, bEndAddress: Baddress,
   };
-
-  if (purchaseOrders.length === 0) {
-    const po = await createGeneratedPo({ opportunityId, customer, billing, connection: orderDetails });
-    purchaseOrders.push({ ...po, requestType: "CREATED" });
-  }
-
-  if (!caf) {
-    caf = await createGeneratedCaf({ opportunityId, customer, billing, connection: orderDetails });
-  }
+  const generatedAt = new Date();
+  const [generatedPo, generatedCaf] = await Promise.all([
+    createGeneratedPo({ opportunityId, customer, billing, connection: orderDetails }),
+    createGeneratedCaf({ opportunityId, customer, billing, connection: orderDetails }),
+  ]);
 
   const connection = await Connection.create({
     opportunityId,
@@ -140,9 +116,11 @@ const createConnection = asyncHandler(async (req, res, next) => {
     serviceType,
     bandwidth,
     remarks: remarks || "",
-    purchaseOrders,
+    generatedDocuments: {
+      po: { ...generatedPo, generatedAt },
+      caf: { ...generatedCaf, generatedAt },
+    },
     businessAgreement: businessAgreement || undefined,
-    caf,
     technicalDetails: {
       aEnd: { btsId: AbtsId, address: Aaddress, latitude: Alatitude, longitude: Alongitude },
       bEnd: { btsId: BbtsId, address: Baddress, latitude: Blatitude, longitude: Blongitude },
@@ -319,6 +297,10 @@ const approveConnection = asyncHandler(async (req, res, next) => {
     ["CREATED", "UPGRADE", "DOWNGRADE", "SHIFTING", "RATE_REVISION", "IP_ADDITION"].includes(entry.action)
   );
   const requestType = definingAction ? definingAction.action : null;
+
+  if (requestType === "CREATED" && !hasSignedDocuments(connection)) {
+    return next(new AppError("Signed CAF and signed PO must be uploaded before this order can be approved", 400));
+  }
 
   const lastAction = connection.history[connection.history.length - 1]?.action;
   if (requestType === "RATE_REVISION") {
@@ -1651,7 +1633,91 @@ const undoDisconnection = asyncHandler(async (req, res, next) => {
   });
 });
 
+// Upload the customer-signed CAF and/or PO for a new connection; these become the official documents.
+const uploadSignedDocuments = asyncHandler(async (req, res, next) => {
+  const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
+  if (!connection) return next(new AppError("Connection not found", 404));
+
+  if (req.user.role === ROLES.EMPLOYEE) {
+    const customer = await Customer.findById(connection.customer);
+    if (!customer?.managedBy.equals(req.user._id)) {
+      return next(new AppError("You can only upload documents for your own customers", 403));
+    }
+  }
+
+  if (areSignedDocumentsLocked(connection)) {
+    return next(new AppError("Signed documents can no longer be changed once the order has been approved", 400));
+  }
+
+  const cafFile = req.files?.caf?.[0];
+  const poFile = req.files?.purchaseOrder?.[0];
+  if ((!cafFile || cafFile.size === 0) && (!poFile || poFile.size === 0)) {
+    return next(new AppError("Please attach the signed CAF and/or signed PO", 400));
+  }
+
+  const uploadedLabels = [];
+
+  if (cafFile && cafFile.size > 0) {
+    const replacing = Boolean(connection.caf?.url);
+    const uploaded = await uploadDocument(cafFile, "crm/connections/cafs");
+    connection.caf = {
+      fileName: cafFile.originalname,
+      url: uploaded.url,
+      publicId: uploaded.publicId,
+      storage: uploaded.storage,
+      uploadedAt: new Date(),
+    };
+    uploadedLabels.push(replacing ? "CAF (replaced)" : "CAF");
+  }
+
+  if (poFile && poFile.size > 0) {
+    const uploaded = await uploadDocument(poFile, "crm/connections/purchaseOrders");
+    const signedPo = {
+      fileName: poFile.originalname,
+      url: uploaded.url,
+      publicId: uploaded.publicId,
+      storage: uploaded.storage,
+      requestType: "CREATED",
+      uploadedAt: new Date(),
+    };
+    const existingIndex = connection.purchaseOrders.findIndex((po) => po.requestType === "CREATED");
+    if (existingIndex >= 0) {
+      connection.purchaseOrders.splice(existingIndex, 1, signedPo);
+      uploadedLabels.push("PO (replaced)");
+    } else {
+      connection.purchaseOrders.unshift(signedPo);
+      uploadedLabels.push("PO");
+    }
+  }
+
+  connection.history.push({
+    action: "SIGNED_DOCUMENT_UPLOADED",
+    performedBy: req.user._id,
+    date: new Date(),
+    note: `Signed ${uploadedLabels.join(" & ")} uploaded`,
+  });
+
+  await connection.save();
+  ioHelper.broadcastChange("connections_mutated", {
+    action: "UPDATE",
+    id: connection._id
+  });
+
+  logger.info("Signed documents uploaded", {
+    opportunityId: connection.opportunityId,
+    documents: uploadedLabels,
+    by: req.user._id,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: `Signed ${uploadedLabels.join(" & ")} uploaded successfully`,
+    signedDocumentsComplete: hasSignedDocuments(connection),
+  });
+});
+
 module.exports = {
+  uploadSignedDocuments,
   createConnection,
   connectionByCustomer,
   getConnectionById,
