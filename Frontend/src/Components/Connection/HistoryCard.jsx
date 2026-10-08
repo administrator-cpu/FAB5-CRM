@@ -6,6 +6,7 @@ import { useAuth } from "../../Context/AuthContext";
 import QuickActions from "./QuickActions";
 import SigningDocuments from "./SigningDocuments";
 import NetworkTopology from "./NetworkTopology";
+import TelcoCircuitIdRow from "./TelcoCircuitIdRow";
 import { X, Trash2, AlertTriangle } from "lucide-react"; // Added Trash2 and AlertTriangle
 import { InputUnit } from "../Utils/InputUnit";
 import { Edit, Send } from "../Icons/Icons";
@@ -260,10 +261,7 @@ function OpportunityDetails() {
               </div>
             </div>
             {(user?.role == "admin" || user?.role == "project_manager" || user?.role == "order_generation") && (
-              <div className="flex justify-between pt-2 border-t">
-                <span className="text-gray-500">Telco Circuit ID:</span>
-                <span className="font-mono text-xs bg-gray-100 px-1 rounded">{data.telecoCircuitId || "Pending"}</span>
-              </div>
+              <TelcoCircuitIdRow connection={data} isAdmin={user?.role === "admin"} onSaved={() => getConnectionById(cid)} />
             )}
           </div>
         </div>

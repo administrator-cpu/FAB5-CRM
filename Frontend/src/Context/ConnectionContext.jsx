@@ -106,6 +106,17 @@ export const ConnectionProvider = ({ children }) => {
     [getDashboardData],
   );
 
+  const updateTelcoCircuitId = useCallback(
+    async (id, payload) => {
+      return await handleRequest(
+        () => ConnectionService.updateTelcoCircuitId(id, payload),
+        "Telco Circuit ID updated",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
   const updateTopology = useCallback(
     async (id, payload) => {
       return await handleRequest(
@@ -279,6 +290,7 @@ export const ConnectionProvider = ({ children }) => {
       approveConnection,
       uploadSignedDocuments,
       updateTopology,
+      updateTelcoCircuitId,
       activeConnection,
       Delete,
       Reject,
@@ -304,6 +316,7 @@ export const ConnectionProvider = ({ children }) => {
       approveConnection,
       uploadSignedDocuments,
       updateTopology,
+      updateTelcoCircuitId,
       activeConnection,
       addIp,
       Reject,

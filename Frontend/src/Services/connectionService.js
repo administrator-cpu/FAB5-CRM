@@ -91,6 +91,12 @@ export const ConnectionService = {
 
     return data;
   },
+  updateTelcoCircuitId: async (id, payload) => {
+    const { data } = await api.patch(`/connection/${id}/telco-circuit-id`, payload, {
+      withCredentials: true,
+    });
+    return data;
+  },
   updateTopology: async (id, payload) => {
     const { data } = await api.patch(`/connection/${id}/topology`, payload, {
       withCredentials: true,

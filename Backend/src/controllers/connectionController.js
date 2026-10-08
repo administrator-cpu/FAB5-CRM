@@ -1326,6 +1326,64 @@ const updateCoordinates = asyncHandler(async (req, res, next) => {
   });
 });
 
+// Admin-only change of the Telco Circuit ID (vendors re-issue it from time to time).
+const updateTelcoCircuitId = asyncHandler(async (req, res, next) => {
+  if (req.user.role !== ROLES.ADMIN) {
+    return next(new AppError("Access denied. Only Admins can change the Telco Circuit ID.", 403));
+  }
+
+  const newId = String(req.body.telecoCircuitId ?? "").trim();
+  if (!newId) return next(new AppError("Telecom Circuit ID (LSI ID) is required", 400));
+
+  const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
+  if (!connection) return next(new AppError("Connection not found", 404));
+
+  // Only circuits that were activated (and so already have an ID) can be changed here.
+  if (!connection.telecoCircuitId) {
+    return next(new AppError("This connection has no Telco Circuit ID yet — it is set when the connection is activated", 400));
+  }
+
+  const oldId = connection.telecoCircuitId;
+  if (oldId === newId) return next(new AppError("No changes to save", 400));
+
+  const provider = connection.technicalDetails?.telcoProvider;
+  const existingDuplicate = await Connection.findOne({
+    telecoCircuitId: newId,
+    "technicalDetails.telcoProvider": provider,
+    _id: { $ne: connection._id },
+  });
+  if (existingDuplicate) {
+    return next(new AppError(`Telecom Circuit ID "${newId}" is already in use by another ${provider || "Unknown Provider"} connection (Opportunity: ${existingDuplicate.opportunityId}).`, 400));
+  }
+
+  connection.telecoCircuitId = newId;
+  connection.history.push({
+    action: "EDITED",
+    performedBy: req.user._id,
+    date: new Date(),
+    note: `Telco Circuit ID changed: ${oldId} → ${newId}`,
+    ...buildSnapshot(connection),
+  });
+
+  await connection.save();
+  ioHelper.broadcastChange("connections_mutated", {
+    action: "EDITED",
+    id: connection._id
+  });
+  logger.info("Telco Circuit ID changed", {
+    opportunityId: connection.opportunityId,
+    from: oldId,
+    to: newId,
+    editedBy: req.user._id,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Telco Circuit ID updated",
+    telecoCircuitId: connection.telecoCircuitId,
+  });
+});
+
 // Admin-only edit of the network topology (A-End / B-End BTS ID, address and coordinates).
 const TOPOLOGY_FIELDS = [
   ["btsId", "BTS ID"],
@@ -1790,6 +1848,7 @@ const uploadSignedDocuments = asyncHandler(async (req, res, next) => {
 module.exports = {
   uploadSignedDocuments,
   updateTopology,
+  updateTelcoCircuitId,
   createConnection,
   connectionByCustomer,
   getConnectionById,
