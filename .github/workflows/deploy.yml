@@ -15,6 +15,9 @@ jobs:
   deploy:
     runs-on: [self-hosted, windows, crm-prod]
     timeout-minutes: 15
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: 'never'
     steps:
       - name: Deploy CRM on the VPS
         shell: powershell
