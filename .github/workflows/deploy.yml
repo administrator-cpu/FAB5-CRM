@@ -1,0 +1,23 @@
+name: Deploy CRM backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Backend/**'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-crm
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows, crm-prod]
+    timeout-minutes: 15
+    steps:
+      - name: Deploy CRM on the VPS
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File C:\Apps\deploy\deploy-crm.ps1
+          exit $LASTEXITCODE
