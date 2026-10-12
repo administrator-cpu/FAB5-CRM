@@ -48,7 +48,12 @@ const QuickActions = ({
     .find(h => ['CREATED', 'UPGRADE', 'DOWNGRADE', 'SHIFTING', 'RATE_REVISION', 'IP_ADDITION'].includes(h.action))?.action;
   const hasSignedDocuments = Boolean(connection?.caf?.url) &&
     (connection?.purchaseOrders || []).some(po => po.requestType === 'CREATED' && po.url);
-  const awaitingSignedDocuments = requestType === 'CREATED' && !hasSignedDocuments;
+  // Upgrade / downgrade / shifting requests wait for their signed RMACD form (older requests without one don't).
+  const requestEntry = [...historyList].reverse().find(h => h.action === requestType);
+  const rmacdForm = ['UPGRADE', 'DOWNGRADE', 'SHIFTING'].includes(requestType)
+    ? (connection?.rmacdForms || []).find(f => String(f.historyEntryId) === String(requestEntry?._id))
+    : null;
+  const awaitingSignedDocuments = (requestType === 'CREATED' && !hasSignedDocuments) || Boolean(rmacdForm && !rmacdForm.signed?.url);
 
   // 1. OWNER ACTIONS
   if (status === 'Pending' && (userRole === 'owner' || userRole === 'admin')) {
@@ -60,7 +65,7 @@ const QuickActions = ({
         <button
           onClick={onApprove}
           disabled={awaitingSignedDocuments}
-          title={awaitingSignedDocuments ? "Signed CAF and signed PO must be uploaded first" : undefined}
+          title={awaitingSignedDocuments ? (rmacdForm ? "The signed RMACD form must be uploaded first" : "Signed CAF and signed PO must be uploaded first") : undefined}
           className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded text-sm font-semibold shadow transition"
         >
           {awaitingSignedDocuments ? "Awaiting Signed Docs" : "Approve Request"}

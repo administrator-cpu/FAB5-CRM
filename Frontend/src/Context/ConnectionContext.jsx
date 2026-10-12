@@ -128,6 +128,17 @@ export const ConnectionProvider = ({ children }) => {
     [getDashboardData],
   );
 
+  const uploadSignedRmacd = useCallback(
+    async (id, payload) => {
+      return await handleRequest(
+        () => ConnectionService.uploadSignedRmacd(id, payload),
+        "Signed RMACD uploaded",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
   const uploadSignedDocuments = useCallback(
     async (id, payload) => {
       return await handleRequest(
@@ -289,6 +300,7 @@ export const ConnectionProvider = ({ children }) => {
       setSingleConnectionData,
       approveConnection,
       uploadSignedDocuments,
+      uploadSignedRmacd,
       updateTopology,
       updateTelcoCircuitId,
       activeConnection,
@@ -315,6 +327,7 @@ export const ConnectionProvider = ({ children }) => {
       singleConnectionData,
       approveConnection,
       uploadSignedDocuments,
+      uploadSignedRmacd,
       updateTopology,
       updateTelcoCircuitId,
       activeConnection,

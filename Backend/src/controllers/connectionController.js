@@ -8,6 +8,7 @@ const Customer = require("../models/customerModel");
 const { uploadDocument } = require("../services/upload.service");
 const { createGeneratedCaf } = require("../services/caf.service");
 const { createGeneratedPo } = require("../services/po.service");
+const { createGeneratedRmacd } = require("../services/rmacd.service");
 const generateOpportunityId = require("../services/opportunityId.service");
 const { sendConnectionEmail, sendChangeEmail } = require("../services/sendEmail");
 const emailQueue = require("../queue/email.queue");
@@ -44,6 +45,18 @@ const hasSignedDocuments = (connection) =>
 const areSignedDocumentsLocked = (connection) =>
   !["Pending", "Rejected"].includes(connection.status) ||
   connection.history.some((entry) => ["APPROVED", "ACTIVATED"].includes(entry.action));
+
+const RMACD_REQUEST_TYPES = ["UPGRADE", "DOWNGRADE", "SHIFTING"];
+const REQUEST_ACTIONS = ["CREATED", "UPGRADE", "DOWNGRADE", "SHIFTING", "RATE_REVISION", "IP_ADDITION"];
+
+// The connection's current request entry and its RMACD form. form is null for request types without an
+// RMACD, and for requests raised before RMACD forms existed (those stay approvable as before).
+const currentRmacdForm = (connection) => {
+  const entry = [...connection.history].reverse().find((h) => REQUEST_ACTIONS.includes(h.action));
+  if (!entry || !RMACD_REQUEST_TYPES.includes(entry.action)) return { entry, form: null };
+  const form = connection.rmacdForms.find((f) => String(f.historyEntryId) === String(entry._id));
+  return { entry, form: form || null };
+};
 
 const withCreatedBy = async (connectionId) => {
   return await Connection
@@ -226,7 +239,7 @@ const getConnectionById = asyncHandler(async (req, res, next) => {
   const connection = await Connection.findOne({
     _id: req.params.id,
     status: { $ne: "Deleted" },
-  }).populate("customer", "name email mobile person")
+  }).populate("customer", "name email mobile person managedBy")
     .populate("createdBy", "name email role")
     .populate("approvedBy", "name email role")
     .populate("activatedBy", "name email role")
@@ -300,6 +313,13 @@ const approveConnection = asyncHandler(async (req, res, next) => {
 
   if (requestType === "CREATED" && !hasSignedDocuments(connection)) {
     return next(new AppError("Signed CAF and signed PO must be uploaded before this order can be approved", 400));
+  }
+
+  if (RMACD_REQUEST_TYPES.includes(requestType)) {
+    const { form } = currentRmacdForm(connection);
+    if (form && !form.signed?.url) {
+      return next(new AppError("The signed RMACD form must be uploaded before this request can be approved", 400));
+    }
   }
 
   const lastAction = connection.history[connection.history.length - 1]?.action;
@@ -739,11 +759,9 @@ const editConnection = asyncHandler(async (req, res, next) => {
     return next(new AppError("Can only edit active connections", 400));
   }
 
-  if (req.user.role === ROLES.EMPLOYEE) {
-    const customer = await Customer.findById(connection.customer);
-    if (!customer?.managedBy.equals(req.user._id)) {
-      return next(new AppError("You can only edit your own customers' connections", 403));
-    }
+  const customer = await Customer.findById(connection.customer);
+  if (req.user.role === ROLES.EMPLOYEE && !customer?.managedBy.equals(req.user._id)) {
+    return next(new AppError("You can only edit your own customers' connections", 403));
   }
   const isRateRevision = ratePerMb !== undefined && Number(ratePerMb) !== Number(connection.commercials.ratePerMb) && (!bandwidth || Number(bandwidth) === Number(connection.bandwidth));
   if (isRateRevision) {
@@ -776,6 +794,12 @@ const editConnection = asyncHandler(async (req, res, next) => {
   const oldBandwidth = parseInt(connection.bandwidth);
   const newBandwidth = parseInt(bandwidth);
   const actionType = bandwidth && oldBandwidth > newBandwidth ? "DOWNGRADE" : "UPGRADE";
+  // Values before the change, for the RMACD form.
+  const previous = {
+    bandwidth: connection.bandwidth,
+    ratePerMb: connection.commercials.ratePerMb,
+    mrc: connection.commercials.mrc,
+  };
 
   if (connection.scheduledRateRevision) {
     connection.scheduledRateRevision = undefined
@@ -787,20 +811,6 @@ const editConnection = asyncHandler(async (req, res, next) => {
   if (ratePerMb !== undefined) connection.commercials.ratePerMb = ratePerMb;
   if (remarks) connection.remarks = remarks;
 
-  if (!req.files?.purchaseOrder?.[0]) {
-    return next(new AppError("A Purchase Order (PO) document is mandatory for bandwidth modifications.", 400));
-  }
-  const poFile = req.files.purchaseOrder[0];
-  const uploadResult = await uploadDocument(poFile, "crm/connections/purchaseOrders");
-
-  connection.purchaseOrders.push({
-    fileName: poFile.originalname,
-    url: uploadResult.url,
-    publicId: uploadResult.publicId,
-    storage: uploadResult.storage,
-    requestType: actionType
-  });
-
   connection.status = "Pending";
   connection.history.push({
     action: actionType,
@@ -809,6 +819,26 @@ const editConnection = asyncHandler(async (req, res, next) => {
     note: `${actionType}: ${oldBandwidth} → ${newBandwidth}`,
     ...buildSnapshot(connection),
   });
+
+  // Unsigned RMACD for the customer to sign; approval waits for the signed copy.
+  const requestEntry = connection.history[connection.history.length - 1];
+  const unsignedRmacd = await createGeneratedRmacd({
+    customer,
+    form: {
+      requestType: actionType,
+      opportunityId: connection.opportunityId,
+      serviceType: connection.serviceType,
+      bandwidth: { old: previous.bandwidth, new: connection.bandwidth },
+      ratePerMb: { old: previous.ratePerMb, new: connection.commercials.ratePerMb },
+      mrc: { old: previous.mrc, new: connection.commercials.mrc },
+      location: {
+        aEnd: { btsId: connection.technicalDetails?.aEnd?.btsId, address: connection.technicalDetails?.aEnd?.address },
+        bEnd: { btsId: connection.technicalDetails?.bEnd?.btsId, address: connection.technicalDetails?.bEnd?.address },
+      },
+    },
+  });
+  connection.rmacdForms.push({ requestType: actionType, historyEntryId: requestEntry._id, unsigned: unsignedRmacd });
+
   connection.providerCost = { mrc: 0, ratePerMb: 0 };
   await connection.save();
   ioHelper.broadcastChange("connections_mutated", {
@@ -1060,25 +1090,16 @@ const shiftConnection = asyncHandler(async (req, res, next) => {
     return next(new AppError("Cannot only shift an Active connections", 400));
   }
 
-  if (req.user.role === ROLES.EMPLOYEE) {
-    const customer = await Customer.findById(connection.customer);
-    if (!customer?.managedBy.equals(req.user._id)) {
-      return next(new AppError("You can only shift your own customers' connections", 403));
-    }
+  const customer = await Customer.findById(connection.customer);
+  if (req.user.role === ROLES.EMPLOYEE && !customer?.managedBy.equals(req.user._id)) {
+    return next(new AppError("You can only shift your own customers' connections", 403));
   }
 
-  if (!req.files || !req.files.purchaseOrder || !req.files.purchaseOrder[0]) {
-    return next(new AppError("A Purchase Order document is required to process this shifting request", 400));
-  }
-  const poFile = req.files.purchaseOrder[0];
-  const uploadedPo = await uploadDocument(poFile, "crm/connections/purchaseOrders");
-  connection.purchaseOrders.push({
-    fileName: poFile.originalname,
-    url: uploadedPo.url,
-    publicId: uploadedPo.publicId,
-    storage: uploadedPo.storage,
-    requestType: "SHIFTING",
-  })
+  // Locations before the shift, for the RMACD form.
+  const previousEnds = {
+    aEnd: { btsId: connection.technicalDetails?.aEnd?.btsId, address: connection.technicalDetails?.aEnd?.address },
+    bEnd: { btsId: connection.technicalDetails?.bEnd?.btsId, address: connection.technicalDetails?.bEnd?.address },
+  };
 
   connection.technicalDetails = connection.technicalDetails || {};
   connection.technicalDetails.aEnd = connection.technicalDetails.aEnd || {};
@@ -1110,6 +1131,33 @@ const shiftConnection = asyncHandler(async (req, res, next) => {
     note: "Location shift requested",
     ...buildSnapshot(connection),
   });
+
+  // Unsigned RMACD listing the end(s) that actually move; approval waits for the signed copy.
+  const shifting = {};
+  const endKeys = isILL ? ["aEnd"] : ["aEnd", "bEnd"];
+  for (const key of endKeys) {
+    const before = previousEnds[key];
+    const after = { btsId: connection.technicalDetails[key]?.btsId, address: connection.technicalDetails[key]?.address };
+    if ((before.btsId || "") !== (after.btsId || "") || (before.address || "") !== (after.address || "")) {
+      shifting[key] = { old: before, new: after };
+    }
+  }
+  const requestEntry = connection.history[connection.history.length - 1];
+  const unsignedRmacd = await createGeneratedRmacd({
+    customer,
+    form: {
+      requestType: "SHIFTING",
+      opportunityId: connection.opportunityId,
+      serviceType: connection.serviceType,
+      bandwidth: { old: connection.bandwidth },
+      ratePerMb: connection.commercials.ratePerMb,
+      mrc: { old: connection.commercials.mrc },
+      otc: otc || 0,
+      shifting,
+    },
+  });
+  connection.rmacdForms.push({ requestType: "SHIFTING", historyEntryId: requestEntry._id, unsigned: unsignedRmacd });
+
   connection.providerCost = { mrc: 0, ratePerMb: 0 };
   await connection.save();
 
@@ -1845,7 +1893,68 @@ const uploadSignedDocuments = asyncHandler(async (req, res, next) => {
   });
 });
 
+// Upload the customer-signed RMACD for the connection's current upgrade / downgrade / shifting request.
+const uploadSignedRmacd = asyncHandler(async (req, res, next) => {
+  const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
+  if (!connection) return next(new AppError("Connection not found", 404));
+
+  if (req.user.role === ROLES.EMPLOYEE) {
+    const customer = await Customer.findById(connection.customer);
+    if (!customer?.managedBy.equals(req.user._id)) {
+      return next(new AppError("You can only upload documents for your own customers", 403));
+    }
+  }
+
+  const { entry, form } = currentRmacdForm(connection);
+  if (!form) {
+    return next(new AppError("There is no pending upgrade, downgrade or shifting request that needs an RMACD form", 400));
+  }
+
+  // Replaceable until this request is approved.
+  const entryIndex = connection.history.indexOf(entry);
+  const approvedSince = connection.history.slice(entryIndex + 1).some((h) => ["APPROVED", "ACTIVATED"].includes(h.action));
+  if (!["Pending", "Rejected"].includes(connection.status) || approvedSince) {
+    return next(new AppError("The signed RMACD can no longer be changed once the request has been approved", 400));
+  }
+
+  const file = req.files?.rmacd?.[0];
+  if (!file || file.size === 0) return next(new AppError("Please attach the signed RMACD form", 400));
+
+  const replacing = Boolean(form.signed?.url);
+  const uploaded = await uploadDocument(file, "crm/connections/rmacd");
+  form.signed = {
+    fileName: file.originalname,
+    url: uploaded.url,
+    publicId: uploaded.publicId,
+    storage: uploaded.storage,
+    uploadedAt: new Date(),
+  };
+
+  const label = `Signed RMACD (${form.requestType})${replacing ? " replaced" : ""}`;
+  connection.history.push({
+    action: "SIGNED_DOCUMENT_UPLOADED",
+    performedBy: req.user._id,
+    date: new Date(),
+    note: `${label} uploaded`,
+  });
+
+  await connection.save();
+  ioHelper.broadcastChange("connections_mutated", {
+    action: "UPDATE",
+    id: connection._id
+  });
+  logger.info("Signed RMACD uploaded", {
+    opportunityId: connection.opportunityId,
+    requestType: form.requestType,
+    replaced: replacing,
+    by: req.user._id,
+  });
+
+  res.status(200).json({ success: true, message: `${label} uploaded successfully` });
+});
+
 module.exports = {
+  uploadSignedRmacd,
   uploadSignedDocuments,
   updateTopology,
   updateTelcoCircuitId,

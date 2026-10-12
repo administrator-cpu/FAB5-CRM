@@ -46,13 +46,17 @@ const DocumentRow = ({ title, unsigned, signed, file, onFileChange, canUpload, i
   </div>
 );
 
-const SigningDocuments = ({ connection, userRole, onUploaded }) => {
+// Visible to admins and to the employee managing this customer only.
+const SigningDocuments = ({ connection, user, onUploaded }) => {
   const { uploadSignedDocuments } = useConnection();
   const [files, setFiles] = useState({ caf: null, purchaseOrder: null });
   const [isUploading, setIsUploading] = useState(false);
 
   // Signing documents (unsigned and signed) are only for employees and admins.
-  if (userRole !== "employee" && userRole !== "admin") return null;
+  const isAdmin = user?.role === "admin";
+  const isManagingEmployee = user?.role === "employee" &&
+    String(connection?.customer?.managedBy || "") === String(user?._id || user?.id || "");
+  if (!isAdmin && !isManagingEmployee) return null;
 
   const generated = connection?.generatedDocuments;
   // Only connections created with the generate-then-sign flow have unsigned documents.
@@ -61,7 +65,7 @@ const SigningDocuments = ({ connection, userRole, onUploaded }) => {
   const signedCaf = connection.caf?.url ? connection.caf : null;
   const signedPo = (connection.purchaseOrders || []).find((po) => po.requestType === "CREATED" && po.url) || null;
   const locked = isLocked(connection);
-  const canUpload = (userRole === "employee" || userRole === "admin") && !locked;
+  const canUpload = !locked;
   const pending = !signedCaf || !signedPo;
 
   const handleFileChange = (e) => {

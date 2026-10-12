@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useConnection } from "../../Context/ConnectionContext";
 import { InputUnitFlow } from "../Utils/InputUnit";
 import toast from "react-hot-toast";
-import { MapPin, FileText, UploadCloud, CheckCircle2, ArrowDown, MessageSquare } from "lucide-react";
+import { MapPin, FileText, ArrowDown, MessageSquare } from "lucide-react";
 import { INDIAN_STATES } from "../Utils/States";
 
 // Updated init state with latitude and longitude fields
@@ -20,7 +20,6 @@ function ShiftConnection({ info }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [data, setData] = useState(init);
-  const [poFile, setPoFile] = useState(null);
 
   const { 
     ABtsId, Astreet, Acity, Astate, Apincode, Alatitude, Alongitude,
@@ -33,23 +32,12 @@ function ShiftConnection({ info }) {
     setData({ ...data, [name]: value });
   };
 
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setPoFile(e.target.files[0]);
-    }
-  };
-
   // Dynamically check if the user is editing either end
   const isEditingA = Boolean(ABtsId || Astreet || Acity || Astate || Apincode || Alatitude || Alongitude);
   const isEditingB = Boolean(BBtsId || Bstreet || Bcity || Bstate || Bpincode || Blatitude || Blongitude);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!poFile) {
-      toast.error("A Purchase Order (PO) document is mandatory for shifting requests.");
-      return;
-    }
 
     if (!isEditingA && !isEditingB) {
       toast.error("Please provide at least one new BTS ID or Address to shift.");
@@ -86,14 +74,11 @@ function ShiftConnection({ info }) {
       // Commercials & Remarks
       if (otc) formData.append("otc", otc);
       if (remarks.trim()) formData.append("remarks", remarks.trim());
-      
-      formData.append("purchaseOrder", poFile);
 
       await patchConnection(cid, formData);
       toast.success("Shift request submitted — awaiting approval!");
       
       setData(init);
-      setPoFile(null);
     } catch (error) {
       console.error(error);
     } finally {
@@ -201,38 +186,17 @@ function ShiftConnection({ info }) {
               </div>
             </div>
 
-            {/* Mandatory Document Upload */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="font-semibold text-slate-700 flex items-center gap-2 mb-4">
-                <FileText size={18} className="text-indigo-500" /> Mandatory Document
-              </h3>
-              
-              <div className={`relative border-2 border-dashed rounded-xl p-6 transition-all duration-200 text-center ${poFile ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 hover:border-indigo-400 bg-slate-50/50'}`}>
-                <input 
-                  type="file" 
-                  accept=".pdf, application/pdf"
-                  onChange={handleFileChange}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  required
-                />
-                
-                {!poFile ? (
-                  <div className="flex flex-col items-center gap-2 pointer-events-none">
-                    <div className="p-3 bg-white rounded-full shadow-sm text-indigo-500">
-                      <UploadCloud size={24} />
-                    </div>
-                    <p className="text-sm font-semibold text-slate-700">Upload Shifting Purchase Order (PO) <span className="text-red-500">*</span></p>
-                    <p className="text-xs text-slate-500">PDF files only. Click or drag & drop.</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-2 pointer-events-none">
-                    <div className="p-2 bg-emerald-100 rounded-full text-emerald-600">
-                      <CheckCircle2 size={28} />
-                    </div>
-                    <p className="text-sm font-bold text-emerald-800 truncate px-4">{poFile.name}</p>
-                    <p className="text-xs text-emerald-600 font-medium">Ready to submit</p>
-                  </div>
-                )}
+            {/* RMACD note */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4">
+              <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600 shrink-0">
+                <FileText size={24} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800">RMACD Form (Charge Deviation Form)</h3>
+                <p className="text-sm text-slate-600 mt-1 leading-relaxed">
+                  The RMACD form is generated automatically when you submit. Download it from the connection page,
+                  get it signed by the customer and upload the signed copy there — the request can be approved only after that.
+                </p>
               </div>
             </div>
           </form>
@@ -273,11 +237,9 @@ function ShiftConnection({ info }) {
           <button 
             type="submit" 
             form="shiftForm"
-            disabled={isSubmitting || !poFile}
+            disabled={isSubmitting}
             className={`w-full py-4 rounded-xl font-bold text-lg flex justify-center items-center gap-2 transition-all active:scale-[0.98] mt-auto ${
-              !poFile 
-                ? "bg-slate-200 text-slate-400 cursor-not-allowed" 
-                : isSubmitting 
+              isSubmitting 
                   ? "bg-indigo-400 text-white cursor-wait" 
                   : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-lg"
             }`}

@@ -103,6 +103,12 @@ export const ConnectionService = {
     });
     return data;
   },
+  uploadSignedRmacd: async (id, payload) => {
+    const { data } = await api.patch(`/connection/${id}/rmacd/signed`, payload, {
+      withCredentials: true,
+    });
+    return data;
+  },
   uploadSignedDocuments: async (id, payload) => {
     const { data } = await api.patch(`/connection/${id}/signed-documents`, payload, {
       withCredentials: true,
