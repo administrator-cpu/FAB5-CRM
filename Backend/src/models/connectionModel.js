@@ -189,6 +189,29 @@ const ConnectionSchema = new mongoose.Schema(
         generatedAt: { type: Date },
       },
     },
+    // RMACD (Charge Deviation Form) per upgrade / downgrade / shifting request: generated unsigned,
+    // then the customer-signed copy is uploaded. historyEntryId links it to the request's history entry.
+    rmacdForms: [
+      {
+        requestType: { type: String, enum: ["UPGRADE", "DOWNGRADE", "SHIFTING"] },
+        historyEntryId: { type: mongoose.Schema.Types.ObjectId },
+        unsigned: {
+          fileName: String,
+          url: String,
+          publicId: String,
+          storage: { type: String, enum: ["cloudinary", "local"] },
+          generatedAt: { type: Date },
+        },
+        signed: {
+          fileName: String,
+          url: String,
+          publicId: String,
+          storage: { type: String, enum: ["cloudinary", "local"] },
+          uploadedAt: { type: Date },
+        },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
     businessAgreement: {
       fileName: String,
       url: String,

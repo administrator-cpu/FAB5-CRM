@@ -9,7 +9,7 @@ const {
   markAsGeneration, cancelConnection, deleteConnection, activateConnection,
   editConnection, updateCoordinates, shiftConnection, addIp, undoDisconnection,
   getProjectManagerReport, downloadDocument, transferConnections, removeTransferLog, checkDuplicateTelcoCircuitIds,
-  uploadSignedDocuments, updateTopology, updateTelcoCircuitId
+  uploadSignedDocuments, updateTopology, updateTelcoCircuitId, uploadSignedRmacd
 } = require("../controllers/connectionController");
 const { updateDashboardMetricsPostResponse } = require("../middlewares/realtimeMiddleware");
 
@@ -30,6 +30,7 @@ router.patch("/:id/approve", protect, updateDashboardMetricsPostResponse, author
 router.patch("/:id/reject", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN, ROLES.OWNER, ROLES.ORDER_GENERATION, ROLES.PROJECT_MANAGER), rejectConnection);
 router.post("/:id/undo", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), undoDisconnection);
 router.patch("/:id/delete", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), deleteConnection);
+router.patch("/:id/rmacd/signed", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), upload.fields([{ name: "rmacd", maxCount: 1 }]), uploadSignedRmacd);
 router.patch("/:id/telco-circuit-id", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), updateTelcoCircuitId);
 router.patch("/:id/topology", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), updateTopology);
 router.put("/:id/coordinates", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), updateCoordinates);
@@ -37,8 +38,8 @@ router.patch("/:id/edit-rejected", protect, updateDashboardMetricsPostResponse, 
 router.patch("/:id/cancel", protect, updateDashboardMetricsPostResponse, authorize(ROLES.PROJECT_MANAGER, ROLES.ADMIN), cancelConnection);
 router.put("/:id/provider-cost", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ORDER_GENERATION, ROLES.ADMIN), updateProviderCost);
 router.patch("/:id/activate", protect, updateDashboardMetricsPostResponse, authorize(ROLES.PROJECT_MANAGER, ROLES.ADMIN), activateConnection);
-router.patch("/:id/shift", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), upload.fields([{ name: "purchaseOrder", maxCount: 1 }]), shiftConnection);
-router.put("/:id/edit", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), upload.fields([{ name: "purchaseOrder", maxCount: 1 }]), editConnection);
+router.patch("/:id/shift", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), upload.none(), shiftConnection);
+router.put("/:id/edit", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), upload.none(), editConnection);
 router.patch("/:id/remark", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), editRemark);
 router.put("/:id/add-ip", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN, ROLES.OWNER), upload.fields([{ name: "purchaseOrder", maxCount: 1 }]), addIp);
 router.patch("/:id/signed-documents", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), upload.fields([{ name: "caf", maxCount: 1 }, { name: "purchaseOrder", maxCount: 1 }]), uploadSignedDocuments);

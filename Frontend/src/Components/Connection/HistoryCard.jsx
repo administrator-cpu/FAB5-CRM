@@ -5,6 +5,7 @@ import HistoryTimeline from "./HistoryTimeline";
 import { useAuth } from "../../Context/AuthContext";
 import QuickActions from "./QuickActions";
 import SigningDocuments from "./SigningDocuments";
+import RmacdForms from "./RmacdForms";
 import NetworkTopology from "./NetworkTopology";
 import TelcoCircuitIdRow from "./TelcoCircuitIdRow";
 import { X, Trash2, AlertTriangle } from "lucide-react"; // Added Trash2 and AlertTriangle
@@ -382,7 +383,9 @@ function OpportunityDetails() {
         {/* NETWORK TOPOLOGY */}
         <NetworkTopology connection={data} isAdmin={user?.role === "admin"} onSaved={() => getConnectionById(cid)} />
 
-        <SigningDocuments connection={data} userRole={user?.role} onUploaded={() => getConnectionById(cid)} />
+        <SigningDocuments connection={data} user={user} onUploaded={() => getConnectionById(cid)} />
+
+        <RmacdForms connection={data} user={user} onUploaded={() => getConnectionById(cid)} />
 
         {/* CONNECTION DOCUMENTS */}
         {(user?.role == "admin" || user?.role == "owner" || user?.role == "employee") &&

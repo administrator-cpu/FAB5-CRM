@@ -90,7 +90,8 @@ const drawHeader = (doc, { ruleY = HEADER_RULE_Y } = {}) => {
 // Header and footer are stamped on every page after the content is laid out
 // (drawing them from a "pageAdded" handler breaks pdfkit's text flow mid-paragraph).
 // firstPageHeader, when given, replaces the standard header on page 1; header: false stamps footers only.
-const stampHeadersAndFooters = (doc, { footerLeft, firstPageHeader, header = true } = {}) => {
+// footerCenter adds a centred footer line; pageNumbers: false drops the "Page X of Y" text.
+const stampHeadersAndFooters = (doc, { footerLeft, footerCenter, firstPageHeader, header = true, pageNumbers = true } = {}) => {
   const range = doc.bufferedPageRange();
   for (let i = range.start; i < range.start + range.count; i++) {
     doc.switchToPage(i);
@@ -106,9 +107,14 @@ const stampHeadersAndFooters = (doc, { footerLeft, firstPageHeader, header = tru
     if (footerLeft) {
       doc.text(footerLeft, MARGIN.left, PAGE.height - 28, { width: CONTENT_WIDTH / 2, lineBreak: false });
     }
-    doc.text(`Page ${i + 1} of ${range.count}`, MARGIN.left + CONTENT_WIDTH / 2, PAGE.height - 28, {
-      width: CONTENT_WIDTH / 2, align: "right", lineBreak: false,
-    });
+    if (footerCenter) {
+      doc.text(footerCenter, MARGIN.left, PAGE.height - 28, { width: CONTENT_WIDTH, align: "center", lineBreak: false });
+    }
+    if (pageNumbers) {
+      doc.text(`Page ${i + 1} of ${range.count}`, MARGIN.left + CONTENT_WIDTH / 2, PAGE.height - 28, {
+        width: CONTENT_WIDTH / 2, align: "right", lineBreak: false,
+      });
+    }
     doc.page.margins.bottom = bottom;
   }
 };
@@ -266,7 +272,7 @@ const renderPdf = ({ title, subject, margins = MARGIN }, draw) => new Promise((r
 });
 
 module.exports = {
-  PAGE, MARGIN, CONTENT_WIDTH, HEADER_TOP, HEADER_RULE_Y, COLORS, FONT, NA,
+  LOGO_PATH, PAGE, MARGIN, CONTENT_WIDTH, HEADER_TOP, HEADER_RULE_Y, COLORS, FONT, NA,
   valueOrNA, formatNumber, formatDate, documentFileName,
   brandGradient, gradientText, gradientHeading,
   drawHeader, stampHeadersAndFooters,
