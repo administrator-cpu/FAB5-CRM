@@ -46,26 +46,31 @@ const DocumentRow = ({ title, unsigned, signed, file, onFileChange, canUpload, i
   </div>
 );
 
-// Visible to admins and to the employee managing this customer only.
+// Admins and the employee managing this customer get the full card (unsigned downloads + uploads).
+// Owners (approvers) get a read-only view of the signed CAF / PO so they can check them before approving.
 const SigningDocuments = ({ connection, user, onUploaded }) => {
   const { uploadSignedDocuments } = useConnection();
   const [files, setFiles] = useState({ caf: null, purchaseOrder: null });
   const [isUploading, setIsUploading] = useState(false);
 
-  // Signing documents (unsigned and signed) are only for employees and admins.
   const isAdmin = user?.role === "admin";
   const isManagingEmployee = user?.role === "employee" &&
     String(connection?.customer?.managedBy || "") === String(user?._id || user?.id || "");
-  if (!isAdmin && !isManagingEmployee) return null;
+  const isOwner = user?.role === "owner";
+  if (!isAdmin && !isManagingEmployee && !isOwner) return null;
+  const canManage = isAdmin || isManagingEmployee;
 
   const generated = connection?.generatedDocuments;
-  // Only connections created with the generate-then-sign flow have unsigned documents.
-  if (!generated?.caf?.url && !generated?.po?.url) return null;
-
+  const hasGenerated = Boolean(generated?.caf?.url || generated?.po?.url);
   const signedCaf = connection.caf?.url ? connection.caf : null;
   const signedPo = (connection.purchaseOrders || []).find((po) => po.requestType === "CREATED" && po.url) || null;
+
+  // Managers see this card for generate-then-sign connections (older ones use Connection Documents).
+  // Owners don't see Connection Documents, so they get the signed CAF / PO here for any connection.
+  if (canManage ? !hasGenerated : !hasGenerated && !signedCaf && !signedPo) return null;
+
   const locked = isLocked(connection);
-  const canUpload = !locked;
+  const canUpload = canManage && !locked;
   const pending = !signedCaf || !signedPo;
 
   const handleFileChange = (e) => {
@@ -101,15 +106,16 @@ const SigningDocuments = ({ connection, user, onUploaded }) => {
 
       {pending && !locked && (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-          Download the unsigned CAF and PO, get them signed by the customer, then upload the signed copies here.
-          The order can't be approved until both signed documents are uploaded.
+          {canManage
+            ? "Download the unsigned CAF and PO, get them signed by the customer, then upload the signed copies here. The order can't be approved until both signed documents are uploaded."
+            : "The signed CAF and PO haven't both been uploaded yet. The order can be approved once they are."}
         </p>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <DocumentRow title="CAF" inputName="caf" unsigned={generated.caf} signed={signedCaf}
+        <DocumentRow title="CAF" inputName="caf" unsigned={canManage ? generated?.caf : null} signed={signedCaf}
           file={files.caf} onFileChange={handleFileChange} canUpload={canUpload} />
-        <DocumentRow title="PO" inputName="purchaseOrder" unsigned={generated.po} signed={signedPo}
+        <DocumentRow title="PO" inputName="purchaseOrder" unsigned={canManage ? generated?.po : null} signed={signedPo}
           file={files.purchaseOrder} onFileChange={handleFileChange} canUpload={canUpload} />
       </div>
 
