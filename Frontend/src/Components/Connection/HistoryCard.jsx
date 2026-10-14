@@ -151,6 +151,11 @@ function OpportunityDetails() {
     }
   };
 
+  // Latest signed RMACD — a newer request's signed form replaces the previous one here.
+  const latestSignedRmacd = (data.rmacdForms || [])
+    .filter((form) => form.signed?.url)
+    .sort((a, b) => new Date(b.signed.uploadedAt || b.createdAt) - new Date(a.signed.uploadedAt || a.createdAt))[0];
+
   const renderDocCard = (label, doc) => {
     if (!doc || !doc.url) return null;
     return (
@@ -160,6 +165,9 @@ function OpportunityDetails() {
           <div className="flex flex-col overflow-hidden">
             <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">{label}</span>
             <span className="text-sm font-semibold text-gray-800 truncate" title={doc.fileName}>{doc.fileName}</span>
+            {doc.uploadedAt && (
+              <span className="text-[11px] text-gray-500">Uploaded {formatDate(doc.uploadedAt)}</span>
+            )}
           </div>
         </div>
         <a href={`https://docs.google.com/viewer?url=${doc.url}`} target="_blank" rel="noopener noreferrer" className="ml-4 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors whitespace-nowrap">
@@ -388,8 +396,10 @@ function OpportunityDetails() {
         <RmacdForms connection={data} user={user} onUploaded={() => getConnectionById(cid)} />
 
         {/* CONNECTION DOCUMENTS */}
-        {(user?.role == "admin" || user?.role == "owner" || user?.role == "employee") &&
-          (data.purchaseOrders?.length > 0 || data.caf || data.businessAgreement) && (
+        {/* Admins and the employee managing this customer only; owners check signed documents in the Signing / RMACD cards. */}
+        {(user?.role === "admin" ||
+          (user?.role === "employee" && String(data.customer?.managedBy || "") === String(user?._id || user?.id || ""))) &&
+          (data.purchaseOrders?.length > 0 || data.caf || data.businessAgreement || latestSignedRmacd) && (
             <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mt-6">
               <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4 border-b pb-2">
                 Connection Documents
@@ -402,6 +412,7 @@ function OpportunityDetails() {
                 ))}
                 {renderDocCard("CAF Document", data.caf)}
                 {renderDocCard("Business Agreement", data.businessAgreement)}
+                {latestSignedRmacd && renderDocCard(`RMACD (${latestSignedRmacd.requestType})`, latestSignedRmacd.signed)}
               </div>
             </div>
           )}

@@ -38,7 +38,8 @@ const FileLink = ({ href, title, icon, tone }) => (
 );
 
 // RMACD (Charge Deviation Form) for upgrade / downgrade / shifting requests: download the unsigned form,
-// upload the customer-signed copy. Visible to admins and to the employee managing this customer only.
+// upload the customer-signed copy. Admins and the employee managing this customer get the full card;
+// owners (approvers) get a read-only view with the signed forms only.
 const RmacdForms = ({ connection, user, onUploaded }) => {
   const { uploadSignedRmacd } = useConnection();
   const [file, setFile] = useState(null);
@@ -47,12 +48,16 @@ const RmacdForms = ({ connection, user, onUploaded }) => {
   const isAdmin = user?.role === "admin";
   const isManagingEmployee = user?.role === "employee" &&
     String(connection?.customer?.managedBy || "") === String(user?._id || user?.id || "");
-  if (!isAdmin && !isManagingEmployee) return null;
+  const isOwner = user?.role === "owner";
+  if (!isAdmin && !isManagingEmployee && !isOwner) return null;
+  const canManage = isAdmin || isManagingEmployee;
   const forms = connection?.rmacdForms || [];
   if (forms.length === 0) return null;
 
   const current = getCurrentForm(connection);
-  const previous = forms.filter((f) => f !== current).slice().reverse();
+  // Owners only see forms that have been signed.
+  const previous = forms.filter((f) => f !== current && (canManage || f.signed?.url)).slice().reverse();
+  if (!current && previous.length === 0) return null;
 
   const handleUpload = async () => {
     if (!file) return toast.error("Choose the signed RMACD form first");
@@ -90,12 +95,14 @@ const RmacdForms = ({ connection, user, onUploaded }) => {
 
           {!current.signed?.url && (
             <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Download the RMACD form, get it signed by the customer and upload the signed copy. This request can't be approved until then.
+              {canManage
+                ? "Download the RMACD form, get it signed by the customer and upload the signed copy. This request can't be approved until then."
+                : "The signed RMACD form hasn't been uploaded yet. This request can be approved once it is."}
             </p>
           )}
 
           <div className="flex flex-wrap gap-2">
-            {current.unsigned?.url && (
+            {canManage && current.unsigned?.url && (
               <FileLink href={current.unsigned.url} title="Unsigned RMACD" icon={<FileDown size={14} />} tone="text-indigo-600 bg-indigo-50 hover:bg-indigo-100" />
             )}
             {current.signed?.url && (
@@ -103,6 +110,7 @@ const RmacdForms = ({ connection, user, onUploaded }) => {
             )}
           </div>
 
+          {canManage && (
           <div className="flex flex-wrap items-center gap-2">
             <label className={`relative flex flex-1 min-w-[200px] items-center gap-2 border-2 border-dashed rounded-lg px-3 py-2 text-xs cursor-pointer transition-all ${file ? "border-emerald-400 bg-emerald-50 text-emerald-800" : "border-gray-300 hover:border-blue-400 text-gray-600"}`}>
               <Upload size={14} className="shrink-0" />
@@ -116,6 +124,7 @@ const RmacdForms = ({ connection, user, onUploaded }) => {
               </button>
             )}
           </div>
+          )}
         </div>
       )}
 
@@ -129,7 +138,7 @@ const RmacdForms = ({ connection, user, onUploaded }) => {
                   {TYPE_LABELS[form.requestType]} <span className="text-gray-500">— {formatDate(form.createdAt)}</span>
                 </span>
                 <div className="flex flex-wrap gap-2">
-                  {form.unsigned?.url && (
+                  {canManage && form.unsigned?.url && (
                     <FileLink href={form.unsigned.url} title="Unsigned" icon={<FileDown size={14} />} tone="text-indigo-600 bg-indigo-50 hover:bg-indigo-100" />
                   )}
                   {form.signed?.url ? (
