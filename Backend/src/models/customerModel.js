@@ -112,5 +112,7 @@ CustomerSchema.virtual("connections", {
   foreignField: "customer",
 });
 CustomerSchema.index({ createdAt: -1, managedBy: 1 });
+// Incremental sync (Ledgerly) pages by (updatedAt, _id).
+CustomerSchema.index({ updatedAt: 1, _id: 1 });
 
 module.exports = mongoose.model('Customer', CustomerSchema);

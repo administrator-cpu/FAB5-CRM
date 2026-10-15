@@ -25,6 +25,7 @@ const buildSnapshot = (connection) => ({
   technicalDetails: connection.technicalDetails,
   commercials: connection.commercials,
   ips: connection.ips,
+  providerCost: { mrc: connection.providerCost?.mrc, ratePerMb: connection.providerCost?.ratePerMb },
   terminationDetails: connection.terminationDetails || {},
 });
 
@@ -125,6 +126,7 @@ const createConnection = asyncHandler(async (req, res, next) => {
     opportunityId,
     fabCircuitId: opportunityId,
     customer: customerId,
+    billingProfileId: billing?._id || null,
     createdBy: req.user._id,
     serviceType,
     bandwidth,
