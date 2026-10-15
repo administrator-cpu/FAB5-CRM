@@ -5,6 +5,9 @@ const {
   checkOpportunityExists
 } = require("../controllers/invoiceIntegration.controller");
 
+const { syncConnections, syncCustomers } = require("../controllers/ledgerlySync.controller");
+const { requireLedgerlyKey } = require("../middlewares/ledgerlyAuth.middleware");
+
 const router = express.Router();
 
 const protectInternal = (req, res, next) => {
@@ -16,6 +19,10 @@ const protectInternal = (req, res, next) => {
 };
 
 // All routes prefixed with /api/crm in app.js
+// Ledgerly incremental sync (read-only, its own LEDGERLY_API_KEY)
+router.get("/sync/connections", requireLedgerlyKey, syncConnections);
+router.get("/sync/customers", requireLedgerlyKey, syncCustomers);
+
 router.get("/customers", protectInternal, searchCustomersForInvoice);
 router.get("/connections/check/:opportunityId", protectInternal, checkOpportunityExists);
 router.get("/customers/:id", protectInternal, getCustomerProfileForInvoice);

@@ -215,6 +215,7 @@ const startRateRevisionJob = () => {
             bandwidth: connection.bandwidth,
             serviceType: connection.serviceType,
             ips: connection.ips,
+            providerCost: { mrc: connection.providerCost?.mrc, ratePerMb: connection.providerCost?.ratePerMb },
             technicalDetails: connection.technicalDetails,
             terminationDetails: connection.terminationDetails
           });

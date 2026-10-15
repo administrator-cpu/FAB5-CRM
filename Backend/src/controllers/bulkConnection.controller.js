@@ -11,6 +11,11 @@ const User = require('../models/userModel');
 const Customer = require('../models/customerModel');
 const emailQueue = require("../queue/email.queue");
 const ROLES = require('../constants/roles');
+const { classifyIpCost } = require('../utils/ipCost');
+
+// Billing profile a bulk-created connection bills to: only unambiguous when the customer has exactly one.
+const singleBillingProfileId = (customer) =>
+  customer?.billingProfile?.length === 1 ? customer.billingProfile[0]._id : null;
 const ioHelper = require('../utils/ioHelper');
 
 const withCreatedBy = async (connectionId) => {
@@ -292,6 +297,7 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
     opportunityId: rowMeta[index].opportunityId,
     fabCircuitId: rowMeta[index].opportunityId,
     customer: customer._id,
+    billingProfileId: singleBillingProfileId(customer),
     createdBy: req.user._id,
     serviceType: row.serviceType,
     bandwidth: row.bandwidth,
@@ -320,9 +326,10 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
       otc: row.otc || 0,
       advance: row.advance || 0,
     },
+    // The sheet's "Per IP Cost" is a per-IP rate; ips.cost stores the total.
     ips: {
       count: row.ipCount || 0,
-      cost: row.ipCost || 0
+      cost: (Number(row.ipCount) || 0) * (Number(row.ipCost) || 0)
     },
     status: "Pending",
 
@@ -356,7 +363,7 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
       },
       ips: {
         count: row.ipCount || 0,
-        cost: row.ipCost || 0
+        cost: (Number(row.ipCount) || 0) * (Number(row.ipCost) || 0)
       },
     }],
   }))
@@ -487,9 +494,10 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
   const validRecords = [];
   const invalidRecords = [];
 
-  const customers = await Customer.find({}).select("email name _id managedBy");
-  const customerEmailMap = new Map(customers.map(c => [c.email.toLowerCase(), { id: c._id, managedBy: c.managedBy }]));
-  const customerNameMap = new Map(customers.map(c => [c.name.toLowerCase().trim(), { id: c._id, managedBy: c.managedBy }]))
+  const customers = await Customer.find({}).select("email name _id managedBy billingProfile._id");
+  const toMapped = (c) => ({ id: c._id, managedBy: c.managedBy, billingProfileId: singleBillingProfileId(c) });
+  const customerEmailMap = new Map(customers.map(c => [c.email.toLowerCase(), toMapped(c)]));
+  const customerNameMap = new Map(customers.map(c => [c.name.toLowerCase().trim(), toMapped(c)]))
 
   const users = await User.find({}).select("email _id");
   const userMap = new Map(users.map(u => [u.email.toLowerCase(), u._id.toString()]));
@@ -530,7 +538,7 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
 
     const errors = [];
 
-    let customerId, creatorId;
+    let customerId, creatorId, billingProfileId = null;
     if (rawCustomerInput) {
       const emailMatch = rawCustomerInput.match(/\(([^)]+)\)/);
       const extractedEmail = emailMatch ? emailMatch[1].toLowerCase().trim() : null;
@@ -539,16 +547,19 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
         const mapped = customerEmailMap.get(extractedEmail);
         customerId = mapped.id;
         creatorId = mapped.managedBy;
+        billingProfileId = mapped.billingProfileId;
       }
       else if (customerEmailMap.has(rawCustomerInput.toLowerCase())) {
         const mapped = customerEmailMap.get(rawCustomerInput.toLowerCase());
         customerId = mapped.id;
         creatorId = mapped.managedBy;
+        billingProfileId = mapped.billingProfileId;
       }
       else if (customerNameMap.has(rawCustomerInput.toLowerCase())) {
         const mapped = customerNameMap.get(rawCustomerInput.toLowerCase());
         customerId = mapped.id;
         creatorId = mapped.managedBy;
+        billingProfileId = mapped.billingProfileId;
       }
       else {
         errors.push(`Customer '${rawCustomerInput}' not found. Please check spelling or use the dropdown.`);
@@ -575,8 +586,13 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
       invalidRecords.push({ row: rowNumber, data: record, errors });
     } else {
       const calculatedMrc = record.bandwidth && record.rpm ? (parseInt(record.bandwidth) * parseFloat(record.rpm)) : 0;
+      // "IP Cost" may be entered as a per-IP rate or a total; the MRC decides (ips.cost stores the total).
+      const { totalCost: ipTotalCost } = classifyIpCost({
+        count: record.ipCount, cost: record.ipCost, bandwidth: record.bandwidth, ratePerMb: record.rpm, mrc: record.mrc || calculatedMrc,
+      });
       validRecords.push({
         customer: customerId,
+        billingProfileId,
         createdBy: creatorId,
         activatedBy: activatorId,
         serviceType: record.serviceType,
@@ -590,7 +606,7 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
         commercials: {
           mrc: record.mrc || calculatedMrc, ratePerMb: record.rpm, otc: record.otc, advance: record.advance
         },
-        ips: { count: record.ipCount, cost: record.ipCost },
+        ips: { count: record.ipCount, cost: ipTotalCost },
         status: "Active",
         acceptanceDate: new Date(),
         history: [{

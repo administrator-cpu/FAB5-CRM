@@ -62,6 +62,10 @@ const HistoryEntrySchema = new mongoose.Schema({
     count: { type: Number, default: 0 },
     cost: { type: Number, default: 0 },
   },
+  providerCost: {
+    mrc: { type: Number },
+    ratePerMb: { type: Number },
+  },
   terminationDetails: {
     raiseDate: { type: Date },
     finalDate: { type: Date },
@@ -81,6 +85,8 @@ const ConnectionSchema = new mongoose.Schema(
       ref: "Customer",
       required: [true, "Customer is required"],
     },
+    // The customer's billing profile (GSTIN / billing address) this connection bills to.
+    billingProfileId: { type: mongoose.Schema.Types.ObjectId, default: null },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -139,6 +145,7 @@ const ConnectionSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    // ips.cost is always the TOTAL charge for all IPs (not the per-IP rate).
     ips: {
       count: { type: Number, default: 0 },
       cost: { type: Number, default: 0 },
@@ -268,6 +275,8 @@ ConnectionSchema.index({ customer: 1 });
 ConnectionSchema.index({ status: 1 });
 ConnectionSchema.index({ createdBy: 1 });
 ConnectionSchema.index({ createdAt: -1 });
+// Incremental sync (Ledgerly) pages by (updatedAt, _id).
+ConnectionSchema.index({ updatedAt: 1, _id: 1 });
 
 ConnectionSchema.pre("save", async function (next) {
   if (this.isNew && !this.opportunityId) {
