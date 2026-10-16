@@ -1,12 +1,13 @@
-// Makes ips.cost the TOTAL IP charge on existing connections. Older bulk uploads stored the per-IP rate;
-// they are found with the MRC check (MRC = bandwidth × rate + IP charges): first on the current values,
-// then — if those are ambiguous — on the connection's earliest history snapshot with the same IPs.
-// Ambiguous rows are listed and left unchanged.
+// Makes ips.cost the TOTAL IP charge and fills ips.perIpCost on existing connections.
+// Older bulk uploads stored the per-IP rate in ips.cost; they are found with the MRC check
+// (MRC = bandwidth × rate + IP charges): first on the current values, then — if those are ambiguous —
+// on the connection's earliest history snapshot with the same IPs. Ambiguous rows are listed and left unchanged.
+// Every other connection with IPs gets ips.perIpCost = total ÷ count.
 // Dry run by default:  node scripts/ledgerly/fix-ip-cost.js
 // Write changes:       node scripts/ledgerly/fix-ip-cost.js --apply
 const { APPLY, connect, disconnect } = require("./db");
 const Connection = require("../../src/models/connectionModel");
-const { classifyIpCost } = require("../../src/utils/ipCost");
+const { classifyIpCost, buildIps } = require("../../src/utils/ipCost");
 
 const classifyConnection = (conn) => {
   const { count, cost } = conn.ips || {};
@@ -30,22 +31,24 @@ const run = async () => {
   await connect();
   console.log(APPLY ? "Mode: APPLY (writing changes)\n" : "Mode: DRY RUN (no changes; add --apply to write)\n");
 
-  const candidates = await Connection.find({ "ips.count": { $gt: 1 }, "ips.cost": { $gt: 0 } })
+  const candidates = await Connection.find({ "ips.count": { $gt: 0 } })
     .select("opportunityId status bandwidth commercials ips history.action history.bandwidth history.commercials history.ips")
     .lean();
 
   const perIp = [];
   const ambiguous = [];
-  let alreadyTotal = 0;
+  const alreadyTotal = [];
   for (const conn of candidates) {
     const result = classifyConnection(conn);
     if (result.basis === "per-ip") perIp.push({ conn, ...result });
     else if (result.basis === "ambiguous") ambiguous.push({ conn, ...result });
-    else alreadyTotal += 1;
+    else alreadyTotal.push(conn);
   }
+  // Rows whose cost is already the total but that have no per-IP rate stored yet.
+  const needPerIp = alreadyTotal.filter((conn) => !conn.ips.perIpCost && Number(conn.ips.cost) > 0);
 
-  console.log(`Connections with more than one IP and an IP cost: ${candidates.length}`);
-  console.log(`  already the total: ${alreadyTotal}`);
+  console.log(`Connections with IPs: ${candidates.length}`);
+  console.log(`  already the total: ${alreadyTotal.length} (per-IP rate to fill in: ${needPerIp.length})`);
   console.log(`  per-IP rate (will be converted to total): ${perIp.length}`);
   console.log(`  ambiguous (left unchanged, check manually): ${ambiguous.length}`);
 
@@ -62,18 +65,28 @@ const run = async () => {
 
   if (!APPLY) return;
 
-  let updated = 0;
+  let converted = 0;
   for (const { conn, totalCost } of perIp) {
     const { count, cost } = conn.ips;
     // Fix the record and every history snapshot that carries the same per-IP value.
     const result = await Connection.updateOne(
       { _id: conn._id, "ips.count": count, "ips.cost": cost },
-      { $set: { "ips.cost": totalCost, "history.$[snap].ips.cost": totalCost } },
+      { $set: {
+        "ips.cost": totalCost, "ips.perIpCost": cost,
+        "history.$[snap].ips.cost": totalCost, "history.$[snap].ips.perIpCost": cost,
+      } },
       { arrayFilters: [{ "snap.ips.count": count, "snap.ips.cost": cost }] },
     );
-    updated += result.modifiedCount;
+    converted += result.modifiedCount;
   }
-  console.log(`\nUpdated ${updated} connection(s).`);
+
+  let filled = 0;
+  for (const conn of needPerIp) {
+    const { perIpCost } = buildIps({ count: conn.ips.count, totalCost: conn.ips.cost });
+    const result = await Connection.updateOne({ _id: conn._id, "ips.cost": conn.ips.cost }, { $set: { "ips.perIpCost": perIpCost } });
+    filled += result.modifiedCount;
+  }
+  console.log(`\nConverted ${converted} connection(s) to totals; filled the per-IP rate on ${filled}.`);
 };
 
 run()

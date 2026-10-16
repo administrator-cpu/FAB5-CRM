@@ -238,9 +238,16 @@ const CreateConnection = () => {
                 <InputUnitFlow type="number" placeholder="e.g. 150" value={ratePerMb} change={handleChange} name="ratePerMb" label="Rate Per Mb (₹)" required />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-100">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100">
                 <InputUnitFlow type="number" placeholder="e.g. 0" name="ipCount" label="Number of IPs" value={ipCount} change={handleChange} />
-                <InputUnitFlow type="number" placeholder="e.g. 0" value={RatePerIP} change={handleChange} name="RatePerIP" label="Rate Per IP (₹)" />
+                <InputUnitFlow type="number" placeholder="e.g. 0" value={RatePerIP} change={handleChange} name="RatePerIP" label="Per IP Cost (₹)" />
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-slate-700">Total IP Cost</label>
+                  <div className="w-full bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-xl px-4 py-2.5 flex items-center justify-between">
+                    <span>₹ {(Number(ipCount || 0) * Number(RatePerIP || 0)).toLocaleString('en-IN')}</span>
+                    <span className="text-[10px] uppercase bg-indigo-200 text-indigo-800 px-2 py-0.5 rounded-full">Auto</span>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100">

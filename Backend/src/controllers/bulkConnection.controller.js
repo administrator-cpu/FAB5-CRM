@@ -11,7 +11,7 @@ const User = require('../models/userModel');
 const Customer = require('../models/customerModel');
 const emailQueue = require("../queue/email.queue");
 const ROLES = require('../constants/roles');
-const { classifyIpCost } = require('../utils/ipCost');
+const { buildIps, classifyIpCost } = require('../utils/ipCost');
 
 // Billing profile a bulk-created connection bills to: only unambiguous when the customer has exactly one.
 const singleBillingProfileId = (customer) =>
@@ -326,11 +326,8 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
       otc: row.otc || 0,
       advance: row.advance || 0,
     },
-    // The sheet's "Per IP Cost" is a per-IP rate; ips.cost stores the total.
-    ips: {
-      count: row.ipCount || 0,
-      cost: (Number(row.ipCount) || 0) * (Number(row.ipCost) || 0)
-    },
+    // The sheet's "Per IP Cost" is the per-IP rate; ips.cost stores the total.
+    ips: buildIps({ count: row.ipCount, totalCost: (Number(row.ipCount) || 0) * (Number(row.ipCost) || 0), perIpCost: row.ipCost }),
     status: "Pending",
 
     history: [{
@@ -361,10 +358,7 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
         otc: row.otc || 0,
         advance: row.advance || 0,
       },
-      ips: {
-        count: row.ipCount || 0,
-        cost: (Number(row.ipCount) || 0) * (Number(row.ipCost) || 0)
-      },
+      ips: buildIps({ count: row.ipCount, totalCost: (Number(row.ipCount) || 0) * (Number(row.ipCost) || 0), perIpCost: row.ipCost }),
     }],
   }))
 
@@ -587,7 +581,7 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
     } else {
       const calculatedMrc = record.bandwidth && record.rpm ? (parseInt(record.bandwidth) * parseFloat(record.rpm)) : 0;
       // "IP Cost" may be entered as a per-IP rate or a total; the MRC decides (ips.cost stores the total).
-      const { totalCost: ipTotalCost } = classifyIpCost({
+      const { totalCost: ipTotalCost, perIpCost: ipPerIpCost } = classifyIpCost({
         count: record.ipCount, cost: record.ipCost, bandwidth: record.bandwidth, ratePerMb: record.rpm, mrc: record.mrc || calculatedMrc,
       });
       validRecords.push({
@@ -606,7 +600,7 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
         commercials: {
           mrc: record.mrc || calculatedMrc, ratePerMb: record.rpm, otc: record.otc, advance: record.advance
         },
-        ips: { count: record.ipCount, cost: ipTotalCost },
+        ips: buildIps({ count: record.ipCount, totalCost: ipTotalCost, perIpCost: ipPerIpCost }),
         status: "Active",
         acceptanceDate: new Date(),
         history: [{

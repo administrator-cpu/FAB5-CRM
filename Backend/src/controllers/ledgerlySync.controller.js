@@ -3,6 +3,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
 const Connection = require("../models/connectionModel");
 const Customer = require("../models/customerModel");
+const { buildIps } = require("../utils/ipCost");
 
 // Read-only incremental sync for Ledgerly (pull). Records are paged by (updatedAt ASC, _id ASC);
 // the cursor encodes the last (updatedAt, _id) so equal timestamps never skip or repeat records.
@@ -62,7 +63,10 @@ const historyDates = (history, action) =>
   history.filter((h) => h.action === action && h.date).map((h) => new Date(h.date)).sort((a, b) => a - b);
 
 const pickCommercials = (c = {}) => ({ mrc: c.mrc ?? null, ratePerMb: c.ratePerMb ?? null, otc: c.otc ?? null, advance: c.advance ?? null });
-const pickIps = (ips = {}) => ({ count: ips.count ?? 0, totalCost: ips.cost ?? 0 });
+const pickIps = (ips = {}) => {
+  const { count, cost, perIpCost } = buildIps({ count: ips.count, totalCost: ips.cost, perIpCost: ips.perIpCost || undefined });
+  return { count, totalCost: cost, perIpCost };
+};
 const pickProviderCost = (p) => (p && (p.mrc !== undefined || p.ratePerMb !== undefined)
   ? { mrc: p.mrc ?? null, ratePerMb: p.ratePerMb ?? null }
   : null);

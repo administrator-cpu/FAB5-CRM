@@ -318,10 +318,21 @@ function OpportunityDetails() {
                 <span>{formatCurrency(data.commercials?.otc)}</span>
               </div>
               {data.ips?.count > 0 && (
-                <div className="flex justify-between pt-2 border-t">
-                  <span className="text-gray-500">IP Allocation:</span>
-                  <span>{data.ips.count} IPs ({formatCurrency(data.ips.cost)})</span>
-                </div>
+                <>
+                  <div className="flex justify-between pt-2 border-t">
+                    <span className="text-gray-500">Number of IPs:</span>
+                    <span>{data.ips.count}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Per IP Cost:</span>
+                    {/* Older connections have no per-IP rate stored: total ÷ count. */}
+                    <span>{formatCurrency(data.ips.perIpCost || (data.ips.cost || 0) / data.ips.count)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Total IP Cost:</span>
+                    <span>{formatCurrency(data.ips.cost)}</span>
+                  </div>
+                </>
               )}
             </div>
           </div>

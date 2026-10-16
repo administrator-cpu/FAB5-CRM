@@ -9,7 +9,7 @@ const {
   markAsGeneration, cancelConnection, deleteConnection, activateConnection,
   editConnection, updateCoordinates, shiftConnection, addIp, undoDisconnection,
   getProjectManagerReport, downloadDocument, transferConnections, removeTransferLog, checkDuplicateTelcoCircuitIds,
-  uploadSignedDocuments, updateTopology, updateTelcoCircuitId, uploadSignedRmacd
+  uploadSignedDocuments, updateTopology, updateTelcoCircuitId, uploadSignedRmacd, getIpStats
 } = require("../controllers/connectionController");
 const { updateDashboardMetricsPostResponse } = require("../middlewares/realtimeMiddleware");
 
@@ -22,6 +22,7 @@ router.get("/project-report", protect, authorize(ROLES.PROJECT_MANAGER, ROLES.AD
 router.post("/transfer", protect, authorize(ROLES.ADMIN), transferConnections);
 router.post("/transfer/remove-log", protect, authorize(ROLES.ADMIN), removeTransferLog);
 router.get("/duplicates/telco-ids", protect, authorize(ROLES.ADMIN, ROLES.OWNER), checkDuplicateTelcoCircuitIds);
+router.get("/ip-stats", protect, authorize(ROLES.ADMIN), getIpStats);
 /* END OF DEVELOPER ONLY API */
 router.get("/details/:id", protect, getConnectionById);
 router.get("/status/:status", protect, authorize(ROLES.EMPLOYEE, ROLES.ADMIN, ROLES.OWNER, ROLES.ORDER_GENERATION, ROLES.PROJECT_MANAGER), getConnectionsByStatus);
