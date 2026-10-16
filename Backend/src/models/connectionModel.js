@@ -61,6 +61,7 @@ const HistoryEntrySchema = new mongoose.Schema({
   ips: {
     count: { type: Number, default: 0 },
     cost: { type: Number, default: 0 },
+    perIpCost: { type: Number },
   },
   providerCost: {
     mrc: { type: Number },
@@ -145,10 +146,11 @@ const ConnectionSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
-    // ips.cost is always the TOTAL charge for all IPs (not the per-IP rate).
+    // ips.count = number of IPs, ips.cost = TOTAL charge for all IPs, ips.perIpCost = charge per IP.
     ips: {
       count: { type: Number, default: 0 },
       cost: { type: Number, default: 0 },
+      perIpCost: { type: Number, default: 0 },
     },
     purchaseOrder: {
       fileName: String,

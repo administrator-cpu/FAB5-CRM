@@ -38,7 +38,8 @@ export const exportConnectionsToExcel = (connections, customerName = "Customer")
     "Rate per MB": safeNumber(conn.commercials?.ratePerMb),
     "OTC": safeNumber(conn.commercials?.otc),
     "IP Count": safeNumber(conn.ips?.count),
-    "IP Cost": safeNumber(conn.ips?.cost),
+    "Per IP Cost": safeNumber(conn.ips?.perIpCost || (conn.ips?.count ? (conn.ips?.cost || 0) / conn.ips.count : 0)),
+    "Total IP Cost": safeNumber(conn.ips?.cost),
     
     // Dates (Formatted for readability)
     "Acceptance Date": conn.acceptanceDate ? new Date(conn.acceptanceDate).toLocaleDateString() : 'N/A',

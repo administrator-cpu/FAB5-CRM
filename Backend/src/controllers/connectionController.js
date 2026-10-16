@@ -9,6 +9,7 @@ const { uploadDocument } = require("../services/upload.service");
 const { createGeneratedCaf } = require("../services/caf.service");
 const { createGeneratedPo } = require("../services/po.service");
 const { createGeneratedRmacd } = require("../services/rmacd.service");
+const { buildIps } = require("../utils/ipCost");
 const generateOpportunityId = require("../services/opportunityId.service");
 const { sendConnectionEmail, sendChangeEmail } = require("../services/sendEmail");
 const emailQueue = require("../queue/email.queue");
@@ -73,8 +74,10 @@ const createConnection = asyncHandler(async (req, res, next) => {
     telcoProvider,
     serviceType, bandwidth,
     mrc, otc, advance, ratePerMb, remarks,
-    ipCount, ipCost, billingProfileId,
+    ipCount, ipCost, RatePerIP, billingProfileId,
   } = req.body;
+  // ipCost from the form is the total IP charge; RatePerIP is the per-IP rate.
+  const ips = buildIps({ count: ipCount, totalCost: ipCost, perIpCost: RatePerIP });
 
 
   if (!bandwidth || !mrc) {
@@ -147,10 +150,7 @@ const createConnection = asyncHandler(async (req, res, next) => {
       otc: otc || 0,
       advance: advance || 0,
     },
-    ips: {
-      count: ipCount || 0,
-      cost: ipCost || 0
-    },
+    ips,
     status: "Pending",
     history: [{
       action: "CREATED",
@@ -170,10 +170,7 @@ const createConnection = asyncHandler(async (req, res, next) => {
         otc: otc || 0,
         advance: advance || 0,
       },
-      ips: {
-        count: ipCount || 0,
-        cost: ipCost || 0
-      },
+      ips,
     }],
   });
   ioHelper.broadcastChange("connections_mutated", {
@@ -460,11 +457,10 @@ const updateProviderCost = asyncHandler(async (req, res, next) => {
   }
 
   const bandwidth = Number(connection.bandwidth || 0);
-  const ipCount = Number(connection.ips?.count || 0);
-  const ipCost = Number(connection.ips?.cost || 0);
+  const ipTotalCost = Number(connection.ips?.cost || 0); // total for all IPs
   const providedRate = Number(ratePerMb);
 
-  const calculatedMrc = (providedRate * bandwidth) + (ipCount * ipCost)
+  const calculatedMrc = (providedRate * bandwidth) + ipTotalCost
 
   if (
     connection.providerCost?.ratePerMb === providedRate &&
@@ -914,8 +910,12 @@ const editRejectedConnection = asyncHandler(async (req, res, next) => {
   if (ratePerMb) connection.commercials.ratePerMb = ratePerMb;
   if (otc) connection.commercials.otc = otc;
   if (advance) connection.commercials.advance = advance;
-  if (ipCount) connection.ips.count = ipCount;
-  if (ipCost) connection.ips.cost = ipCost;
+  if (ipCount || ipCost) {
+    connection.ips = buildIps({
+      count: ipCount || connection.ips?.count,
+      totalCost: ipCost || connection.ips?.cost,
+    });
+  }
 
   if (previousStatus === "Rejected") {
     connection.rejectionDetails = undefined;
@@ -1223,10 +1223,8 @@ const addIp = asyncHandler(async (req, res, next) => {
 
   const newTotalCount = currentIpCount + addedCount;
   const newTotalCost = currentIpCost + addedCost;
-  connection.ips = {
-    count: newTotalCount,
-    cost: newTotalCost
-  };
+  // cost = total for all IPs; the per-IP rate becomes the average over all IPs.
+  connection.ips = buildIps({ count: newTotalCount, totalCost: newTotalCost });
 
   if (remarks) connection.remarks = remarks;
 
@@ -1252,7 +1250,6 @@ const addIp = asyncHandler(async (req, res, next) => {
     performedBy: req.user._id,
     date: new Date(),
     note: `Adding ${addedCount} IPs (₹${addedCost}). Total IPs will be ${newTotalCount} at ₹${newTotalCost}.`,
-    ips: { count: newTotalCount, cost: newTotalCost },
     ...buildSnapshot(connection),
   });
   connection.providerCost = { mrc: 0, otc: 0, ratePerMb: 0 };
@@ -1373,6 +1370,44 @@ const updateCoordinates = asyncHandler(async (req, res, next) => {
       opportunityId: connection.opportunityId,
       technicalDetails: connection.technicalDetails
     }
+  });
+});
+
+// Admin-only report: which connections have IPs (count, total IP charge, per-IP rate). Deleted ones are left out.
+const getIpStats = asyncHandler(async (req, res) => {
+  const connections = await Connection.find({ "ips.count": { $gt: 0 }, status: { $ne: "Deleted" } })
+    .select("opportunityId status ips customer")
+    .populate("customer", "name")
+    .sort({ "ips.count": -1 })
+    .lean();
+
+  const LIVE = ["Active", "Notice Period"];
+  const byStatus = {};
+  const live = { connections: 0, ips: 0, totalIpCharges: 0 };
+  const rows = connections.map((conn) => {
+    const ips = buildIps({ count: conn.ips.count, totalCost: conn.ips.cost, perIpCost: conn.ips.perIpCost || undefined });
+    byStatus[conn.status] = (byStatus[conn.status] || 0) + 1;
+    if (LIVE.includes(conn.status)) {
+      live.connections += 1;
+      live.ips += ips.count;
+      live.totalIpCharges += ips.cost;
+    }
+    return {
+      opportunityId: conn.opportunityId,
+      customer: conn.customer?.name || null,
+      status: conn.status,
+      ipCount: ips.count,
+      totalIpCost: ips.cost,
+      perIpCost: ips.perIpCost,
+    };
+  });
+
+  res.status(200).json({
+    success: true,
+    connectionsWithIps: rows.length,
+    byStatus,
+    live,
+    connections: rows,
   });
 });
 
@@ -1956,6 +1991,7 @@ const uploadSignedRmacd = asyncHandler(async (req, res, next) => {
 });
 
 module.exports = {
+  getIpStats,
   uploadSignedRmacd,
   uploadSignedDocuments,
   updateTopology,

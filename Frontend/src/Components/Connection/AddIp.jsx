@@ -110,6 +110,12 @@ function AddIp() {
             />
           </div>
 
+          {Number(count) > 0 && Number(cost) > 0 && (
+            <p className="text-sm text-slate-600 -mt-4">
+              Per IP Cost: <span className="font-semibold text-slate-800">₹ {(Number(cost) / Number(count)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+            </p>
+          )}
+
           <div className="flex flex-col gap-2">
             <label htmlFor="remarks" className="text-sm font-semibold text-slate-700 flex items-center gap-2">
               <MessageSquare size={16} className="text-slate-400"/> Remarks <span className="text-slate-400 font-normal">(Optional)</span>
