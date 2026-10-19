@@ -286,6 +286,28 @@ export const ConnectionProvider = ({ children }) => {
     [getDashboardData],
   );
 
+  // 4. Bulk batches: one unsigned PO / CAF per upload, signed copies uploaded once for all its connections
+  const getBulkBatches = useCallback(async (customerId) => {
+    try {
+      const { batches } = await ConnectionService.getBulkBatches(customerId);
+      return batches || [];
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Could not load bulk orders");
+      return [];
+    }
+  }, []);
+
+  const uploadBulkSignedDocuments = useCallback(
+    async (batchId, formData) => {
+      return await handleRequest(
+        () => ConnectionService.uploadBulkSignedDocuments(batchId, formData),
+        "Signed documents uploaded",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
   const value = useMemo(
     () => ({
       createConnection,
@@ -312,6 +334,8 @@ export const ConnectionProvider = ({ children }) => {
       downloadBulkTemplate,
       previewBulkUpload,
       createBulkConnections,
+      getBulkBatches,
+      uploadBulkSignedDocuments,
       EditRemark,
       CostProvider,
       projectReportData,
@@ -339,6 +363,8 @@ export const ConnectionProvider = ({ children }) => {
       downloadBulkTemplate,
       previewBulkUpload,
       createBulkConnections,
+      getBulkBatches,
+      uploadBulkSignedDocuments,
       EditRemark,
       CostProvider,
       projectReportData,

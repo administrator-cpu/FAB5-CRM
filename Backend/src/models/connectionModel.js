@@ -88,6 +88,7 @@ const ConnectionSchema = new mongoose.Schema(
     },
     // The customer's billing profile (GSTIN / billing address) this connection bills to.
     billingProfileId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    bulkBatch: { type: mongoose.Schema.Types.ObjectId, ref: "BulkBatch", default: null },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -274,6 +275,7 @@ ConnectionSchema.index(
   {unique: true, partialFilterExpression: { telecoCircuitId: { $type: "string", $regex: /./ } }}
 );
 ConnectionSchema.index({ customer: 1 });
+ConnectionSchema.index({ bulkBatch: 1 }, { partialFilterExpression: { bulkBatch: { $type: "objectId" } } });
 ConnectionSchema.index({ status: 1 });
 ConnectionSchema.index({ createdBy: 1 });
 ConnectionSchema.index({ createdAt: -1 });

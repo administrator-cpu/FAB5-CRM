@@ -1,10 +1,15 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useConnection } from "../../Context/ConnectionContext";
+import { useCustomer } from "../../Context/CustomerContext";
+import { useAuth } from "../../Context/AuthContext";
 import { useParams } from "react-router-dom";
+import BulkBatches from "./BulkBatches";
 
 function BulkConnectionUpload({ customerId }) {
-  const { downloadBulkTemplate, previewBulkUpload, createBulkConnections } = useConnection();
+  const { downloadBulkTemplate, previewBulkUpload, createBulkConnections, getBulkBatches } = useConnection();
+  const { customerInformation } = useCustomer();
+  const { user } = useAuth();
 
   // State
   const [excelFile, setExcelFile] = useState(null);
@@ -13,6 +18,23 @@ function BulkConnectionUpload({ customerId }) {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const {id}=useParams()
+
+  // Billing address for the whole batch — printed on the generated PO & CAF.
+  const billingProfiles = customerInformation?._id === id ? customerInformation.billingProfile || [] : [];
+  const [billingProfileId, setBillingProfileId] = useState("");
+  const selectedBillingId = billingProfiles.length === 1 ? billingProfiles[0]._id : billingProfileId;
+
+  // Earlier bulk uploads of this customer, with their PO / CAF and signed status.
+  const [batches, setBatches] = useState([]);
+  const loadBatches = useCallback(async () => setBatches(await getBulkBatches(id)), [getBulkBatches, id]);
+  useEffect(() => {
+    let active = true;
+    getBulkBatches(id).then((list) => { if (active) setBatches(list); });
+    return () => { active = false; };
+  }, [getBulkBatches, id]);
+  const managedBy = customerInformation?.managedBy?._id || customerInformation?.managedBy;
+  const canManage = user?.role === "admin" ||
+    (user?.role === "employee" && String(managedBy || "") === String(user?._id || user?.id || ""));
 
   // Documents
   const [poFile, setPoFile] = useState(null);
@@ -49,13 +71,14 @@ function BulkConnectionUpload({ customerId }) {
     e.preventDefault();
 
     if (invalidRows.length > 0) return toast.error("Fix the red errors first!");
-    if (!poFile) return toast.error("PO document is required!");
     if (validRows.length === 0) return toast.error("No valid data to submit.");
+    if (billingProfiles.length > 1 && !selectedBillingId) return toast.error("Please select a billing address!");
 
     setIsSubmitting(true);
     const formData = new FormData();
 
-    formData.append("purchaseOrder", poFile);
+    if (selectedBillingId) formData.append("billingProfileId", selectedBillingId);
+    if (poFile) formData.append("purchaseOrder", poFile);
     if (cafFile) formData.append("caf", cafFile);
     if (agreementFile) formData.append("businessAgreement", agreementFile);
 
@@ -74,6 +97,7 @@ function BulkConnectionUpload({ customerId }) {
       setPoFile(null);
       setCafFile(null);
       setAgreementFile(null);
+      loadBatches();
     }
     setIsSubmitting(false);
   };
@@ -154,7 +178,8 @@ function BulkConnectionUpload({ customerId }) {
       {/* STEP 3: FINAL CREATE */}
       {(validRows.length > 0 || invalidRows.length > 0) && (
         <section className={`p-5 border border-gray-200 rounded-lg ${invalidRows.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
-          <h2 className="text-xl font-bold mb-4 text-gray-800">Step 3: Upload Mandatory Documents & Submit</h2>
+          <h2 className="text-xl font-bold mb-1 text-gray-800">Step 3: Create Connections</h2>
+          <p className="text-sm text-gray-500 mb-4">One PO and one CAF covering all {validRows.length} connections are generated for the customer to sign. Upload the signed copies below once they're back — or attach them now if you already have them.</p>
           
           {invalidRows.length > 0 && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
@@ -163,13 +188,32 @@ function BulkConnectionUpload({ customerId }) {
           )}
 
           <form onSubmit={handleFinalSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-gray-700">Purchase Order (PO) *</label>
-              <input type="file" required onChange={(e) => setPoFile(e.target.files[0])} accept=".pdf, application/pdf" className="border p-2 rounded" />
+            <div className="flex flex-col gap-2 md:col-span-2">
+              <label className="text-sm font-semibold text-gray-700">
+                Billing Address {billingProfiles.length > 1 && <span className="text-red-500">*</span>}
+                <span className="text-gray-400 font-normal"> (printed on the PO & CAF, used for every connection)</span>
+              </label>
+              {billingProfiles.length === 0 ? (
+                <p className="text-sm text-gray-500 border rounded p-2">No billing address saved for this customer — N/A will be printed.</p>
+              ) : (
+                <select value={selectedBillingId} onChange={(e) => setBillingProfileId(e.target.value)} disabled={billingProfiles.length === 1} required={billingProfiles.length > 1} className="border p-2 rounded disabled:opacity-80">
+                  <option value="" disabled>Select billing address...</option>
+                  {billingProfiles.map((profile, i) => (
+                    <option key={profile._id} value={profile._id}>
+                      {[profile.label || `Billing ${i + 1}`, profile.gstNumber || "No GST", [profile.address?.city, profile.address?.state].filter(Boolean).join(", ")].filter(Boolean).join(" — ")}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
-            
+
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-gray-700">CAF Document <span className="text-gray-400 font-normal">(Optional — auto-generated per connection if empty)</span></label>
+              <label className="text-sm font-semibold text-gray-700">Signed PO <span className="text-gray-400 font-normal">(Optional — if already signed)</span></label>
+              <input type="file" onChange={(e) => setPoFile(e.target.files[0])} accept=".pdf, application/pdf" className="border p-2 rounded" />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-gray-700">Signed CAF <span className="text-gray-400 font-normal">(Optional — if already signed)</span></label>
               <input type="file" onChange={(e) => setCafFile(e.target.files[0])} accept=".pdf, application/pdf" className="border p-2 rounded" />
             </div>
 
@@ -190,6 +234,8 @@ function BulkConnectionUpload({ customerId }) {
           </form>
         </section>
       )}
+
+      <BulkBatches batches={batches} canManage={canManage} onUpdated={loadBatches} />
     </div>
   );
 }

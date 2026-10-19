@@ -1,4 +1,4 @@
-const { generateCafPdf } = require("../utils/cafGenerator");
+const { generateCafPdf, generateBulkCafPdf } = require("../utils/cafGenerator");
 const { uploadDocument } = require("./upload.service");
 const { documentFileName } = require("../utils/pdfLayout");
 
@@ -27,4 +27,29 @@ const createGeneratedCaf = async ({ opportunityId, customer, billing, connection
   return { fileName: documentFileName(customer.name, opportunityId, "CAF"), ...uploaded };
 };
 
-module.exports = { createGeneratedCaf };
+/**
+ * Generates the single CAF covering every connection of a bulk upload and stores it.
+ * @param {object} params
+ * @param {string} params.batchNumber - CAF number for the batch
+ * @param {object} params.customer - Customer document
+ * @param {object} [params.billing] - billing profile to print (defaults to the customer's first profile)
+ * @param {object[]} params.connections - one entry per connection, same fields as createGeneratedCaf's connection plus opportunityId
+ * @returns {Promise<{fileName: string, url: string, publicId: string, storage: string}>}
+ */
+const createGeneratedBulkCaf = async ({ batchNumber, customer, billing, connections }) => {
+  const pdf = await generateBulkCafPdf({
+    batchNumber,
+    customer,
+    billing: billing || customer.billingProfile?.[0],
+    connections,
+  });
+
+  const uploaded = await uploadDocument(
+    { buffer: pdf, mimetype: "application/pdf", size: pdf.length },
+    "crm/connections/cafs",
+  );
+
+  return { fileName: documentFileName(customer.name, batchNumber, "CAF"), ...uploaded };
+};
+
+module.exports = { createGeneratedCaf, createGeneratedBulkCaf };
