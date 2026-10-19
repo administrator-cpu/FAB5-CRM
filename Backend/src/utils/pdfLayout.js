@@ -167,13 +167,18 @@ const detailRows = (doc, rows, { labelWidth = 165 } = {}) => {
 };
 
 // Bordered grid with a shaded bold header row. columns: [{ title, width }], rows: [[cell, ...]].
-const gridTable = (doc, columns, rows, { fontSize = 9 } = {}) => {
+// repeatHeader: draw the header row again at the top of each new page (long tables).
+const gridTable = (doc, columns, rows, { fontSize = 9, repeatHeader = false } = {}) => {
   const pad = 6;
   const cellFont = (isHeader, i) => (isHeader || (i === 0 && columns[0].boldFirst) ? FONT.bold : FONT.regular);
   const drawRow = (cells, isHeader) => {
     doc.fontSize(fontSize);
     const rowHeight = Math.max(18, ...cells.map((cell, i) =>
       doc.font(cellFont(isHeader, i)).heightOfString(cell, { width: columns[i].width - pad * 2 }) + 8));
+    if (!isHeader && repeatHeader && doc.y + rowHeight > bottomLimit()) {
+      doc.addPage();
+      drawRow(columns.map((c) => c.title), true);
+    }
     ensureSpace(doc, rowHeight);
     const y = doc.y;
     let x = MARGIN.left;

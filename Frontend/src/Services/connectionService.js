@@ -148,5 +148,18 @@ export const ConnectionService = {
     });
     return data;
   },
+  getBulkBatches: async (customerId) => {
+    const { data } = await api.get(`/bulk-connections/${customerId}/batches`, {
+      withCredentials: true,
+    });
+    return data;
+  },
+  uploadBulkSignedDocuments: async (batchId, formData) => {
+    const { data } = await api.patch(`/bulk-connections/batches/${batchId}/signed-documents`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      withCredentials: true,
+    });
+    return data;
+  },
 
 };

@@ -2,7 +2,7 @@ const {
   PAGE, MARGIN, CONTENT_WIDTH, HEADER_TOP, COLORS, FONT, NA,
   valueOrNA, formatNumber, formatDate, gradientText, gradientHeading,
   drawHeader, stampHeadersAndFooters, bottomLimit, ensureSpace,
-  sectionBar, detailRows, writeRuns, signRow, signatureCaption, renderPdf,
+  sectionBar, detailRows, gridTable, writeRuns, signRow, signatureCaption, renderPdf,
 } = require("./pdfLayout");
 const {
   PHOTO_BOX_TEXT, ACCEPTANCE_DECLARATION, OFFICE_USE_LINES,
@@ -26,12 +26,61 @@ const drawFirstPageHeader = (doc) => {
 };
 
 // ─────────── Page 1: Customer Application Form ───────────
+const drawServiceDetails = (doc, connection) => {
+  const isIll = connection.serviceType === "ILL";
+  const ipCount = Number(connection.ipCount) || 0;
+
+  sectionBar(doc, "Service Details");
+  detailRows(doc, [
+    ["Service Type", valueOrNA(connection.serviceType)],
+    ["A-End BTS ID", valueOrNA(connection.aEndBtsId)],
+    ["A-End Address", valueOrNA(connection.aEndAddress)],
+    ["B-End BTS ID", isIll ? NA : valueOrNA(connection.bEndBtsId)],
+    ["B-End Address", isIll ? NA : valueOrNA(connection.bEndAddress)],
+  ]);
+
+  sectionBar(doc, "Financial Charges Details");
+  const financialRows = [
+    ["Bandwidth", connection.bandwidth ? `${connection.bandwidth} Mbps` : NA],
+    ["Rate Per MB", connection.ratePerMb ? `Rs. ${formatNumber(connection.ratePerMb)}` : NA],
+    ["Required Static IP", ipCount > 0 ? "Yes" : "No"],
+  ];
+  if (ipCount > 0) financialRows.push(["No. of IP(s)", String(ipCount)]);
+  detailRows(doc, financialRows);
+};
+
+// Bulk order: one table row per link, covering the service and financial details above.
+const drawBulkServiceDetails = (doc, connections) => {
+  const end = (btsId, address) => [btsId, address].filter((v) => v && String(v).trim()).join(" / ") || NA;
+  sectionBar(doc, `Service & Financial Details (${connections.length} links)`);
+  doc.y += 6;
+  gridTable(doc, [
+    { title: "#", width: 30, align: "center" },
+    { title: "Opportunity ID", width: 92 },
+    { title: "Service", width: 42, align: "center" },
+    { title: "A-End (BTS ID / Address)", width: 116 },
+    { title: "B-End (BTS ID / Address)", width: 116 },
+    { title: "Mbps", width: 36, align: "center" },
+    { title: "Rate/MB", width: 50, align: "right" },
+    { title: "IPs", width: CONTENT_WIDTH - 482, align: "center" },
+  ], connections.map((c, i) => [
+    String(i + 1),
+    valueOrNA(c.opportunityId),
+    valueOrNA(c.serviceType),
+    end(c.aEndBtsId, c.aEndAddress),
+    c.serviceType === "ILL" ? NA : end(c.bEndBtsId, c.bEndAddress),
+    c.bandwidth ? String(c.bandwidth) : NA,
+    c.ratePerMb ? `Rs. ${formatNumber(c.ratePerMb)}` : NA,
+    String(Number(c.ipCount) || 0),
+  ]), { fontSize: 7.5, repeatHeader: true });
+};
+
 const drawFirstPage = (doc, data) => {
   // CAF No and Date fill the gap under the company address (left of the header, above the line).
   const metaY = FIRST_PAGE_RULE_Y - 34;
   const dateText = formatDate(data.date || new Date());
   doc.fontSize(9.5).fillColor(COLORS.text);
-  [["CAF No: ", data.opportunityId], ["Date: ", dateText]].forEach(([label, value], i) => {
+  [["CAF No: ", data.opportunityId || data.batchNumber], ["Date: ", dateText]].forEach(([label, value], i) => {
     doc.font(FONT.bold).text(label, MARGIN.left, metaY + i * 14, { continued: true, lineBreak: false })
       .font(FONT.regular).text(value, { lineBreak: false });
   });
@@ -44,9 +93,7 @@ const drawFirstPage = (doc, data) => {
   doc.x = MARGIN.left;
   doc.y = rowY + 28;
 
-  const { customer, billing, connection } = data;
-  const isIll = connection.serviceType === "ILL";
-  const ipCount = Number(connection.ipCount) || 0;
+  const { customer, billing } = data;
 
   sectionBar(doc, "General Information");
   detailRows(doc, [
@@ -66,23 +113,8 @@ const drawFirstPage = (doc, data) => {
     ["Pincode", valueOrNA(billing?.address?.pincode)],
   ]);
 
-  sectionBar(doc, "Service Details");
-  detailRows(doc, [
-    ["Service Type", valueOrNA(connection.serviceType)],
-    ["A-End BTS ID", valueOrNA(connection.aEndBtsId)],
-    ["A-End Address", valueOrNA(connection.aEndAddress)],
-    ["B-End BTS ID", isIll ? NA : valueOrNA(connection.bEndBtsId)],
-    ["B-End Address", isIll ? NA : valueOrNA(connection.bEndAddress)],
-  ]);
-
-  sectionBar(doc, "Financial Charges Details");
-  const financialRows = [
-    ["Bandwidth", connection.bandwidth ? `${connection.bandwidth} Mbps` : NA],
-    ["Rate Per MB", connection.ratePerMb ? `Rs. ${formatNumber(connection.ratePerMb)}` : NA],
-    ["Required Static IP", ipCount > 0 ? "Yes" : "No"],
-  ];
-  if (ipCount > 0) financialRows.push(["No. of IP(s)", String(ipCount)]);
-  detailRows(doc, financialRows);
+  if (data.connections) drawBulkServiceDetails(doc, data.connections);
+  else drawServiceDetails(doc, data.connection);
 
   sectionBar(doc, "Customer Acceptance");
   doc.y += 6;
@@ -250,4 +282,23 @@ const generateCafPdf = (data) => renderPdf(
   },
 );
 
-module.exports = { generateCafPdf };
+/**
+ * Builds one Customer Application Form PDF covering every connection of a bulk upload.
+ * @param {object} data
+ * @param {string} data.batchNumber - CAF number for the batch
+ * @param {object} data.customer - Customer document
+ * @param {object} [data.billing] - Billing profile
+ * @param {object[]} data.connections - [{ opportunityId, serviceType, bandwidth, ratePerMb, aEndBtsId, aEndAddress, bEndBtsId, bEndAddress, ipCount }]
+ * @param {Date} [data.date]
+ * @returns {Promise<Buffer>}
+ */
+const generateBulkCafPdf = (data) => renderPdf(
+  { title: `Customer Application Form - ${data.batchNumber}`, subject: "Customer Application Form (CAF)" },
+  (doc) => {
+    drawFirstPage(doc, data);
+    drawTermsPages(doc);
+    stampHeadersAndFooters(doc, { footerLeft: `CAF No: ${data.batchNumber}`, firstPageHeader: drawFirstPageHeader });
+  },
+);
+
+module.exports = { generateCafPdf, generateBulkCafPdf };

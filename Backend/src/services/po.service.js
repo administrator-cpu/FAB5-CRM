@@ -1,4 +1,4 @@
-const { generateCustomerPoPdf } = require("../utils/poGenerator");
+const { generateCustomerPoPdf, generateBulkPoPdf } = require("../utils/poGenerator");
 const { uploadDocument } = require("./upload.service");
 const { documentFileName } = require("../utils/pdfLayout");
 
@@ -22,4 +22,24 @@ const createGeneratedPo = async ({ opportunityId, customer, billing, connection 
   return { fileName: documentFileName(customer.name, opportunityId, "PO"), ...uploaded };
 };
 
-module.exports = { createGeneratedPo };
+/**
+ * Generates the single customer PO covering every connection of a bulk upload and stores it.
+ * @param {object} params
+ * @param {string} params.batchNumber - bulk batch number, used in the file name
+ * @param {object} params.customer - Customer document
+ * @param {object} [params.billing] - billing profile chosen for the batch
+ * @param {object[]} params.connections - one entry per connection, same fields as createGeneratedPo's connection plus opportunityId
+ * @returns {Promise<{fileName: string, url: string, publicId: string, storage: string}>}
+ */
+const createGeneratedBulkPo = async ({ batchNumber, customer, billing, connections }) => {
+  const pdf = await generateBulkPoPdf({ batchNumber, customer, billing, connections });
+
+  const uploaded = await uploadDocument(
+    { buffer: pdf, mimetype: "application/pdf", size: pdf.length },
+    "crm/connections/purchaseOrders",
+  );
+
+  return { fileName: documentFileName(customer.name, batchNumber, "PO"), ...uploaded };
+};
+
+module.exports = { createGeneratedPo, createGeneratedBulkPo };

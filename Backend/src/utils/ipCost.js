@@ -13,6 +13,10 @@ const buildIps = ({ count, totalCost, perIpCost }) => {
   return { count: ipCount, cost: total, perIpCost: perIp };
 };
 
+// MRC = bandwidth × rate per Mb + total IP charges.
+const expectedMrc = (bandwidth, ratePerMb, ipTotalCost) =>
+  round2((Number(bandwidth) || 0) * (Number(ratePerMb) || 0) + (Number(ipTotalCost) || 0));
+
 // Older bulk uploads stored the per-IP rate in ips.cost instead of the total.
 // The MRC tells them apart, because MRC = bandwidth × rate per Mb + total IP charges.
 const classifyIpCost = ({ count, cost, bandwidth, ratePerMb, mrc }) => {
@@ -33,4 +37,4 @@ const classifyIpCost = ({ count, cost, bandwidth, ratePerMb, mrc }) => {
   return { basis: "ambiguous", totalCost: ipCost, perIpCost: asTotal.perIpCost };
 };
 
-module.exports = { buildIps, classifyIpCost };
+module.exports = { buildIps, classifyIpCost, expectedMrc };

@@ -1,7 +1,9 @@
 const ExcelJS = require('exceljs');
 const { generateTemplate } = require('../services/bulkConnection.service');
 const { uploadDocument } = require('../services/upload.service');
-const { createGeneratedCaf } = require('../services/caf.service');
+const mongoose = require('mongoose');
+const { createGeneratedBulkCaf } = require('../services/caf.service');
+const { createGeneratedBulkPo } = require('../services/po.service');
 const generateOpportunityId = require('../services/opportunityId.service');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
@@ -9,9 +11,11 @@ const AppError = require('../utils/AppError');
 const Connection = require('../models/connectionModel');
 const User = require('../models/userModel');
 const Customer = require('../models/customerModel');
+const BulkBatch = require('../models/bulkBatch.model');
 const emailQueue = require("../queue/email.queue");
 const ROLES = require('../constants/roles');
 const { buildIps, classifyIpCost } = require('../utils/ipCost');
+const { hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments } = require('../utils/signedDocuments');
 
 // Billing profile a bulk-created connection bills to: only unambiguous when the customer has exactly one.
 const singleBillingProfileId = (customer) =>
@@ -207,12 +211,31 @@ const uploadBulkConnections = asyncHandler(async (req, res, next) => {
 
 });
 
+// Stores an uploaded signed document; null when no file was attached.
+const storeSignedFile = async (file, folder, userId) => {
+  if (!file || file.size === 0) return null;
+  const uploaded = await uploadDocument(file, folder);
+  return { fileName: file.originalname, ...uploaded, uploadedAt: new Date(), uploadedBy: userId };
+};
+
+// The connection copy of a batch document leaves out who uploaded it (kept on the batch).
+const toConnectionDoc = (doc) => {
+  if (!doc) return null;
+  const { uploadedBy, ...rest } = doc;
+  return rest;
+};
+
+const newBatchNumber = async () => {
+  let batchNumber;
+  do { batchNumber = `BULK${generateOpportunityId().slice(3)}`; } while (await BulkBatch.exists({ batchNumber }));
+  return batchNumber;
+};
+
+// Creates every valid row as a Pending connection, plus one unsigned PO and one unsigned CAF
+// covering all of them. Signed copies can be uploaded now (optional) or later for the whole batch.
 const createBulkConnections = asyncHandler(async (req, res, next) => {
   const customerId = req.params.customerId;
 
-  if (!req.files || !req.files.purchaseOrder || !req.files.purchaseOrder[0]) {
-    return next(new AppError("Purchase order is required", 400));
-  }
   if (!req.body.connections) {
     return next(new AppError("No Connection Provided", 400));
   }
@@ -237,50 +260,49 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
     return next(new AppError("You can only create orders for your own customers", 403));
   }
 
-  const poUpload = await uploadDocument(req.files.purchaseOrder[0], "crm/connections/purchaseOrders");
-  const sharedPurchaseOrders = [{
-    fileName: req.files.purchaseOrder[0].originalname,
-    url: poUpload.url,
-    publicId: poUpload.publicId,
-    storage: poUpload.storage,
-    requestType: "CREATED",
-  }];
-
-  // A CAF uploaded with the batch is shared by every row; otherwise each connection gets its own generated CAF.
-  let sharedCaf = null;
-  if (req.files.caf && req.files.caf[0] && req.files.caf[0].size > 0) {
-    const cafUpload = await uploadDocument(req.files.caf[0], "crm/connections/cafs");
-    sharedCaf = {
-      fileName: req.files.caf[0].originalname,
-      url: cafUpload.url,
-      publicId: cafUpload.publicId,
-      storage: cafUpload.storage
-    };
+  // Billing profile for the whole batch; printed on the PO / CAF (first profile when none is chosen).
+  let billingProfileId = singleBillingProfileId(customer);
+  if (req.body.billingProfileId) {
+    if (!customer.billingProfile.id(req.body.billingProfileId)) {
+      return next(new AppError("Selected billing address does not belong to this customer", 400));
+    }
+    billingProfileId = req.body.billingProfileId;
   }
+  const billing = billingProfileId ? customer.billingProfile.id(billingProfileId) : customer.billingProfile?.[0];
 
   const usedOpportunityIds = new Set();
-  const rowMeta = [];
-  for (const row of validRows) {
+  const opportunityIds = validRows.map(() => {
     let opportunityId;
     do { opportunityId = generateOpportunityId(); } while (usedOpportunityIds.has(opportunityId));
     usedOpportunityIds.add(opportunityId);
+    return opportunityId;
+  });
 
-    const caf = sharedCaf || await createGeneratedCaf({
-      opportunityId,
-      customer,
-      connection: {
-        serviceType: row.serviceType,
-        bandwidth: row.bandwidth,
-        ratePerMb: row.ratePerMb,
-        aEndBtsId: row.AbtsId,
-        aEndAddress: row.Aaddress,
-        bEndBtsId: row.BbtsId,
-        bEndAddress: row.Baddress,
-        ipCount: row.ipCount,
-      },
-    });
-    rowMeta.push({ opportunityId, caf });
-  }
+  const batchId = new mongoose.Types.ObjectId();
+  const batchNumber = await newBatchNumber();
+  const documentRows = validRows.map((row, index) => ({
+    opportunityId: opportunityIds[index],
+    serviceType: row.serviceType,
+    bandwidth: row.bandwidth,
+    ratePerMb: row.ratePerMb,
+    mrc: row.calculatedMrc || row.mrc || 0,
+    otc: row.otc || 0,
+    aEndBtsId: row.AbtsId,
+    aEndAddress: row.Aaddress,
+    bEndBtsId: row.BbtsId,
+    bEndAddress: row.Baddress,
+    ipCount: row.ipCount,
+  }));
+
+  const generatedAt = new Date();
+  const [generatedPo, generatedCaf] = await Promise.all([
+    createGeneratedBulkPo({ batchNumber, customer, billing, connections: documentRows }),
+    createGeneratedBulkCaf({ batchNumber, customer, billing, connections: documentRows }),
+  ]);
+
+  // Already-signed copies attached at creation apply to every connection in the batch.
+  const signedPo = await storeSignedFile(req.files?.purchaseOrder?.[0], "crm/connections/purchaseOrders", req.user._id);
+  const signedCaf = await storeSignedFile(req.files?.caf?.[0], "crm/connections/cafs", req.user._id);
 
   let sharedBusinessAgreement = null;
   if (req.files.businessAgreement && req.files.businessAgreement[0]) {
@@ -294,16 +316,21 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
   }
 
   const connectionsToInsert = validRows.map((row, index) => ({
-    opportunityId: rowMeta[index].opportunityId,
-    fabCircuitId: rowMeta[index].opportunityId,
+    opportunityId: opportunityIds[index],
+    fabCircuitId: opportunityIds[index],
     customer: customer._id,
-    billingProfileId: singleBillingProfileId(customer),
+    billingProfileId,
+    bulkBatch: batchId,
     createdBy: req.user._id,
     serviceType: row.serviceType,
     bandwidth: row.bandwidth,
     remarks: row.remarks || "",
-    purchaseOrders: sharedPurchaseOrders,
-    caf: rowMeta[index].caf,
+    generatedDocuments: {
+      po: { ...generatedPo, generatedAt },
+      caf: { ...generatedCaf, generatedAt },
+    },
+    purchaseOrders: signedPo ? [{ ...toConnectionDoc(signedPo), requestType: "CREATED" }] : [],
+    caf: toConnectionDoc(signedCaf) || undefined,
     businessAgreement: sharedBusinessAgreement || undefined,
     technicalDetails: {
       aEnd: {
@@ -334,7 +361,7 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
       action: "CREATED",
       performedBy: req.user._id,
       date: new Date(),
-      note: "Order created",
+      note: `Order created (bulk batch ${batchNumber})`,
       serviceType: row.serviceType,
       bandwidth: row.bandwidth,
        technicalDetails: {
@@ -363,10 +390,20 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
   }))
 
   const createdConnections = await Connection.create(connectionsToInsert);
+  const batch = await BulkBatch.create({
+    _id: batchId,
+    batchNumber,
+    customer: customer._id,
+    billingProfileId,
+    createdBy: req.user._id,
+    connections: createdConnections.map((conn) => conn._id),
+    generatedDocuments: { po: generatedPo, caf: generatedCaf, generatedAt },
+    signedDocuments: { po: signedPo || undefined, caf: signedCaf || undefined },
+  });
   ioHelper.broadcastChange("connections_mutated", {
-  action: "CREATE", 
-  id: createdConnections._id
-});
+    action: "CREATE",
+    id: batch._id
+  });
 
   try {
     const processedOpportunityIds = createdConnections.map(conn => conn.opportunityId);
@@ -394,10 +431,124 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
 
   res.status(201).json({
     success: true,
-    message: "Connections created successfully",
-    data: createdConnections
+    message: `${createdConnections.length} connections created — download the unsigned PO and CAF for batch ${batchNumber}`,
+    data: createdConnections,
+    batch,
   });
 
+});
+
+// Employees may only see and change bulk batches of customers they manage.
+const canAccessCustomer = (user, customer) =>
+  user.role !== ROLES.EMPLOYEE || Boolean(customer?.managedBy?.equals(user._id));
+
+const BATCH_CONNECTION_FIELDS = "bulkBatch opportunityId serviceType bandwidth status caf purchaseOrders history.action";
+// Deleted and cancelled connections no longer need signed documents, so batches ignore them.
+const LIVE_BATCH_CONNECTION = { $nin: ["Deleted", "Cancelled"] };
+
+const summarizeBatch = (batch, connections) => ({
+  _id: batch._id,
+  batchNumber: batch.batchNumber,
+  createdAt: batch.createdAt,
+  createdBy: batch.createdBy,
+  generatedDocuments: batch.generatedDocuments,
+  signedDocuments: batch.signedDocuments,
+  removedCount: Math.max(batch.connections.length - connections.length, 0),
+  connections: connections.map((conn) => ({
+    _id: conn._id,
+    opportunityId: conn.opportunityId,
+    serviceType: conn.serviceType,
+    bandwidth: conn.bandwidth,
+    status: conn.status,
+    signedDocumentsComplete: hasSignedDocuments(conn),
+    locked: areSignedDocumentsLocked(conn),
+  })),
+});
+
+const getCustomerBulkBatches = asyncHandler(async (req, res, next) => {
+  const customer = await Customer.findById(req.params.customerId).select("managedBy");
+  if (!customer) return next(new AppError("Customer not found", 404));
+  if (!canAccessCustomer(req.user, customer)) {
+    return next(new AppError("You can only view bulk orders of your own customers", 403));
+  }
+
+  const batches = await BulkBatch.find({ customer: customer._id })
+    .sort({ createdAt: -1 })
+    .populate("createdBy", "name email")
+    .lean();
+  const connections = await Connection.find({ bulkBatch: { $in: batches.map((b) => b._id) }, status: LIVE_BATCH_CONNECTION })
+    .select(BATCH_CONNECTION_FIELDS)
+    .lean();
+
+  res.status(200).json({
+    success: true,
+    // A batch whose connections were all deleted or cancelled has nothing left to sign.
+    batches: batches
+      .map((batch) => summarizeBatch(batch, connections.filter((conn) => String(conn.bulkBatch) === String(batch._id))))
+      .filter((batch) => batch.connections.length > 0),
+  });
+});
+
+// Uploads the signed CAF and/or PO once and puts them on every connection of the batch that
+// hasn't been approved yet. Approved connections keep the documents they were approved with.
+const uploadBulkSignedDocuments = asyncHandler(async (req, res, next) => {
+  const batch = await BulkBatch.findById(req.params.batchId);
+  if (!batch) return next(new AppError("Bulk batch not found", 404));
+
+  const customer = await Customer.findById(batch.customer).select("managedBy");
+  if (!canAccessCustomer(req.user, customer)) {
+    return next(new AppError("You can only upload documents for your own customers", 403));
+  }
+
+  const cafFile = req.files?.caf?.[0];
+  const poFile = req.files?.purchaseOrder?.[0];
+  if ((!cafFile || cafFile.size === 0) && (!poFile || poFile.size === 0)) {
+    return next(new AppError("Please attach the signed CAF and/or signed PO", 400));
+  }
+
+  const connections = await Connection.find({ bulkBatch: batch._id, status: LIVE_BATCH_CONNECTION });
+  if (connections.length === 0) {
+    return next(new AppError("Every connection in this batch has been deleted or cancelled", 400));
+  }
+  const open = connections.filter((conn) => !areSignedDocumentsLocked(conn));
+  if (open.length === 0) {
+    return next(new AppError("Every connection in this batch has already been approved — signed documents can no longer be changed", 400));
+  }
+
+  const signedCaf = await storeSignedFile(cafFile, "crm/connections/cafs", req.user._id);
+  const signedPo = await storeSignedFile(poFile, "crm/connections/purchaseOrders", req.user._id);
+
+  for (const conn of open) {
+    const labels = applySignedDocuments(conn, { caf: toConnectionDoc(signedCaf), po: toConnectionDoc(signedPo) });
+    conn.history.push({
+      action: "SIGNED_DOCUMENT_UPLOADED",
+      performedBy: req.user._id,
+      date: new Date(),
+      note: `Signed ${labels.join(" & ")} uploaded for bulk batch ${batch.batchNumber}`,
+    });
+    await conn.save();
+  }
+
+  if (signedCaf) batch.signedDocuments.caf = signedCaf;
+  if (signedPo) batch.signedDocuments.po = signedPo;
+  await batch.save();
+
+  ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: batch._id });
+
+  const skipped = connections.filter((conn) => areSignedDocumentsLocked(conn)).map((conn) => conn.opportunityId);
+  const uploadedLabel = [signedCaf && "CAF", signedPo && "PO"].filter(Boolean).join(" & ");
+  logger.info("Bulk signed documents uploaded", {
+    batchNumber: batch.batchNumber, documents: uploadedLabel, applied: open.length, skipped: skipped.length, by: req.user._id,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: `Signed ${uploadedLabel} added to ${open.length} connection${open.length === 1 ? "" : "s"}`
+      + (skipped.length ? ` (${skipped.length} already approved, left unchanged)` : ""),
+    applied: open.map((conn) => conn.opportunityId),
+    skipped,
+    batch: summarizeBatch(batch.toObject(), connections),
+  });
 });
 
 /* Developers APIs */
@@ -642,6 +793,8 @@ const commitActiveBulkConnections = asyncHandler(async (req, res, next) => {
 });
 
 module.exports = {
+  getCustomerBulkBatches,
+  uploadBulkSignedDocuments,
   downloadTemplate,
   uploadBulkConnections,
   createBulkConnections,

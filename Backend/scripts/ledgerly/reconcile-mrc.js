@@ -11,13 +11,9 @@
 // Write changes:       node scripts/ledgerly/reconcile-mrc.js --apply
 const fs = require("fs");
 const path = require("path");
-const { buildIps } = require("../../src/utils/ipCost");
+const { buildIps, expectedMrc } = require("../../src/utils/ipCost");
 
-const round2 = (value) => Math.round(value * 100) / 100;
 const differs = (a, b) => Math.abs((Number(a) || 0) - (Number(b) || 0)) >= 0.01;
-
-const expectedMrc = (bandwidth, ratePerMb, ipTotalCost) =>
-  round2((Number(bandwidth) || 0) * (Number(ratePerMb) || 0) + (Number(ipTotalCost) || 0));
 
 // Works out every change one connection needs. Pure: no database access.
 const planConnection = (conn) => {

@@ -84,8 +84,44 @@ const drawCommercialDetails = (doc, { connection }) => {
   ]]);
 };
 
-const drawTechnicalPart = (doc, { connection }) => {
-  const ipCount = Number(connection.ipCount) || 0;
+// Bulk order: one row per link, then the totals.
+const drawBulkCommercialDetails = (doc, { connections }) => {
+  sectionBar(doc, COMMERCIAL_HEADING);
+  doc.y += 6;
+
+  const end = (btsId, address) => [btsId, address].filter((v) => v && String(v).trim()).join(" / ") || NA;
+  const columns = [
+    { title: "#", width: 30, align: "center" },
+    { title: "Opportunity ID", width: 92 },
+    { title: "Product", width: 42, align: "center" },
+    { title: "Mbps", width: 36, align: "center" },
+    { title: "A_End (BTS/PoP / Address)", width: 94 },
+    { title: "B_End (BTS/PoP / Address)", width: 94 },
+    { title: "IPs", width: 26, align: "center" },
+    { title: "MRC (18% GST Extra)", width: 56, align: "right" },
+    { title: "OTC (18% GST Extra)", width: CONTENT_WIDTH - 470, align: "right" },
+  ];
+  const rows = connections.map((c, i) => [
+    String(i + 1),
+    valueOrNA(c.opportunityId),
+    valueOrNA(c.serviceType),
+    c.bandwidth ? String(c.bandwidth) : NA,
+    end(c.aEndBtsId, c.aEndAddress),
+    c.serviceType === "ILL" ? NA : end(c.bEndBtsId, c.bEndAddress),
+    String(Number(c.ipCount) || 0),
+    rupees(c.mrc),
+    rupees(c.otc),
+  ]);
+  const sum = (key) => connections.reduce((total, c) => total + (Number(c[key]) || 0), 0);
+  rows.push(["", `Total (${connections.length} links)`, "", "", "", "", String(sum("ipCount")), rupees(sum("mrc")), rupees(sum("otc"))]);
+
+  gridTable(doc, columns, rows, { fontSize: 7.5, repeatHeader: true });
+};
+
+const drawTechnicalPart = (doc, { connection, connections }) => {
+  const ipCount = connections
+    ? connections.reduce((total, c) => total + (Number(c.ipCount) || 0), 0)
+    : Number(connection.ipCount) || 0;
   gradientHeading(doc, TECHNICAL.heading);
 
   const items = [
@@ -146,4 +182,27 @@ const generateCustomerPoPdf = (data) => renderPdf(
   },
 );
 
-module.exports = { generateCustomerPoPdf };
+/**
+ * Builds one customer Purchase Order PDF covering every connection of a bulk upload.
+ * @param {object} data
+ * @param {object} data.customer - Customer document
+ * @param {object} [data.billing] - Selected billing profile
+ * @param {string} data.batchNumber - bulk batch number, printed in the footer
+ * @param {object[]} data.connections - [{ opportunityId, serviceType, bandwidth, mrc, otc, aEndBtsId, aEndAddress, bEndBtsId, bEndAddress, ipCount }]
+ * @param {Date} [data.date]
+ * @returns {Promise<Buffer>}
+ */
+const generateBulkPoPdf = (data) => renderPdf(
+  { title: `Purchase Order - ${data.customer?.name || ""} - ${data.batchNumber}`.trim(), subject: "Purchase Order", margins: PO_MARGIN },
+  (doc) => {
+    drawTitleBlock(doc, data);
+    drawCustomerDetails(doc, data);
+    drawBulkCommercialDetails(doc, data);
+    drawTechnicalPart(doc, data);
+    drawTerms(doc);
+    signatureCaption(doc, SIGNATURE_TEXT);
+    stampHeadersAndFooters(doc, { footerLeft: `Purchase Order - ${data.batchNumber}`, header: false });
+  },
+);
+
+module.exports = { generateCustomerPoPdf, generateBulkPoPdf };

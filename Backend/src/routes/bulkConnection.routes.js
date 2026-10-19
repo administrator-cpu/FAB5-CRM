@@ -5,7 +5,8 @@ const ROLES = require("../constants/roles");
 const { updateDashboardMetricsPostResponse } = require("../middlewares/realtimeMiddleware");
 const {
   downloadTemplate, uploadBulkConnections, createBulkConnections,
-  activeBulkConnectionTemplate, previewActiveBulkConnections, commitActiveBulkConnections
+  activeBulkConnectionTemplate, previewActiveBulkConnections, commitActiveBulkConnections,
+  getCustomerBulkBatches, uploadBulkSignedDocuments,
 } = require("../controllers/bulkConnection.controller");
 
 const router = express.Router();
@@ -21,6 +22,15 @@ router.post(
     { name: "caf", maxCount: 1 },
   ]),
   createBulkConnections
+);
+// Bulk batches: one unsigned PO / CAF per upload; the signed copies are uploaded once for the whole batch.
+router.get("/:customerId/batches", protect, authorize(ROLES.EMPLOYEE, ROLES.ADMIN, ROLES.OWNER), getCustomerBulkBatches);
+router.patch(
+  "/batches/:batchId/signed-documents",
+  protect, updateDashboardMetricsPostResponse,
+  authorize(ROLES.EMPLOYEE, ROLES.ADMIN),
+  upload.fields([{ name: "caf", maxCount: 1 }, { name: "purchaseOrder", maxCount: 1 }]),
+  uploadBulkSignedDocuments
 );
 router.get(
   "/bulk-template",

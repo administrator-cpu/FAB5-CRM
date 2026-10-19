@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { FileDown, Upload, CheckCircle2, Clock, Lock, ExternalLink } from "lucide-react";
 import toast from "react-hot-toast";
+import { Link } from "react-router-dom";
 import { useConnection } from "../../Context/ConnectionContext";
 
 // Signed copies can be replaced until the order is first approved (mirrors the backend rule).
@@ -103,6 +104,15 @@ const SigningDocuments = ({ connection, user, onUploaded }) => {
           </span>
         )}
       </div>
+
+      {connection.bulkBatch && canManage && !locked && (
+        <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 mb-4">
+          This connection was created in a bulk upload — its CAF and PO cover every connection of that batch.
+          Upload the signed copies once from{" "}
+          <Link to={`/customer/${connection.customer?._id || connection.customer}/bulk`} className="font-semibold underline">Import Connections</Link>
+          {" "}to add them to all of them, or upload here to replace them for this connection only.
+        </p>
+      )}
 
       {pending && !locked && (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">

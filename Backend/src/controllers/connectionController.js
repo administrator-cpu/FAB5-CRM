@@ -9,7 +9,8 @@ const { uploadDocument } = require("../services/upload.service");
 const { createGeneratedCaf } = require("../services/caf.service");
 const { createGeneratedPo } = require("../services/po.service");
 const { createGeneratedRmacd } = require("../services/rmacd.service");
-const { buildIps } = require("../utils/ipCost");
+const { buildIps, expectedMrc } = require("../utils/ipCost");
+const { hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments } = require("../utils/signedDocuments");
 const generateOpportunityId = require("../services/opportunityId.service");
 const { sendConnectionEmail, sendChangeEmail } = require("../services/sendEmail");
 const emailQueue = require("../queue/email.queue");
@@ -37,16 +38,6 @@ const getRequestType = (historyArray) => {
   );
   return definingAction ? definingAction.action : "CREATED";
 };
-
-// Signed CAF + signed PO (the CREATED entry) are required before a new order can be approved.
-const hasSignedDocuments = (connection) =>
-  Boolean(connection.caf?.url) &&
-  connection.purchaseOrders.some((po) => po.requestType === "CREATED" && po.url);
-
-// Signed copies can be replaced until the order is first approved.
-const areSignedDocumentsLocked = (connection) =>
-  !["Pending", "Rejected"].includes(connection.status) ||
-  connection.history.some((entry) => ["APPROVED", "ACTIVATED"].includes(entry.action));
 
 const RMACD_REQUEST_TYPES = ["UPGRADE", "DOWNGRADE", "SHIFTING"];
 const REQUEST_ACTIONS = ["CREATED", "UPGRADE", "DOWNGRADE", "SHIFTING", "RATE_REVISION", "IP_ADDITION"];
@@ -1017,6 +1008,12 @@ const cancelConnection = asyncHandler(async (req, res, next) => {
       connection.bandwidth = lastActiveSnapshot.bandwidth;
       connection.serviceType = lastActiveSnapshot.serviceType;
       connection.commercials = lastActiveSnapshot.commercials;
+      // Undo a pending IP addition along with its MRC.
+      if (lastActiveSnapshot.ips) {
+        const { count, cost, perIpCost } = lastActiveSnapshot.ips;
+        connection.ips = buildIps({ count, totalCost: cost, perIpCost: perIpCost || undefined });
+      }
+      if (connection.isIpAdditionRequest) connection.isIpAdditionRequest = false;
 
       connection.status = "Active";
 
@@ -1226,6 +1223,22 @@ const addIp = asyncHandler(async (req, res, next) => {
   // cost = total for all IPs; the per-IP rate becomes the average over all IPs.
   connection.ips = buildIps({ count: newTotalCount, totalCost: newTotalCost });
 
+  // MRC = bandwidth × rate per Mb + total IP cost. Without a bandwidth and rate to work from
+  // (other than IP-only services), add the new IP charge to the existing MRC instead.
+  const oldMrc = Number(connection.commercials?.mrc) || 0;
+  const bandwidthMb = Number(connection.bandwidth) || 0;
+  const ratePerMb = Number(connection.commercials?.ratePerMb) || 0;
+  const canRecalculate = connection.serviceType === "IP" || (bandwidthMb > 0 && ratePerMb > 0);
+  const newMrc = canRecalculate ? expectedMrc(bandwidthMb, ratePerMb, newTotalCost) : oldMrc + addedCost;
+  connection.commercials.mrc = newMrc;
+
+  const pending = connection.scheduledRateRevision;
+  if (pending && pending.ratePerMb !== undefined && pending.ratePerMb !== null) {
+    pending.mrc = canRecalculate
+      ? expectedMrc(bandwidthMb, pending.ratePerMb, newTotalCost)
+      : (Number(pending.mrc) || 0) + addedCost;
+  }
+
   if (remarks) connection.remarks = remarks;
 
   if (!req.files?.purchaseOrder?.[0]) {
@@ -1249,7 +1262,7 @@ const addIp = asyncHandler(async (req, res, next) => {
     action: "IP_ADDITION",
     performedBy: req.user._id,
     date: new Date(),
-    note: `Adding ${addedCount} IPs (₹${addedCost}). Total IPs will be ${newTotalCount} at ₹${newTotalCost}.`,
+    note: `Adding ${addedCount} IPs (₹${addedCost}). Total IPs will be ${newTotalCount} at ₹${newTotalCost}. MRC ₹${oldMrc} → ₹${newMrc}.`,
     ...buildSnapshot(connection),
   });
   connection.providerCost = { mrc: 0, otc: 0, ratePerMb: 0 };
@@ -1273,6 +1286,7 @@ const addIp = asyncHandler(async (req, res, next) => {
     message: "IP addition request submitted — awaiting approval",
     opportunityId: connection.opportunityId,
     ips: connection.ips,
+    mrc: connection.commercials.mrc,
   });
 });
 
@@ -1869,40 +1883,15 @@ const uploadSignedDocuments = asyncHandler(async (req, res, next) => {
     return next(new AppError("Please attach the signed CAF and/or signed PO", 400));
   }
 
-  const uploadedLabels = [];
-
-  if (cafFile && cafFile.size > 0) {
-    const replacing = Boolean(connection.caf?.url);
-    const uploaded = await uploadDocument(cafFile, "crm/connections/cafs");
-    connection.caf = {
-      fileName: cafFile.originalname,
-      url: uploaded.url,
-      publicId: uploaded.publicId,
-      storage: uploaded.storage,
-      uploadedAt: new Date(),
-    };
-    uploadedLabels.push(replacing ? "CAF (replaced)" : "CAF");
-  }
-
-  if (poFile && poFile.size > 0) {
-    const uploaded = await uploadDocument(poFile, "crm/connections/purchaseOrders");
-    const signedPo = {
-      fileName: poFile.originalname,
-      url: uploaded.url,
-      publicId: uploaded.publicId,
-      storage: uploaded.storage,
-      requestType: "CREATED",
-      uploadedAt: new Date(),
-    };
-    const existingIndex = connection.purchaseOrders.findIndex((po) => po.requestType === "CREATED");
-    if (existingIndex >= 0) {
-      connection.purchaseOrders.splice(existingIndex, 1, signedPo);
-      uploadedLabels.push("PO (replaced)");
-    } else {
-      connection.purchaseOrders.unshift(signedPo);
-      uploadedLabels.push("PO");
-    }
-  }
+  const store = async (file, folder) => {
+    if (!file || file.size === 0) return null;
+    const uploaded = await uploadDocument(file, folder);
+    return { fileName: file.originalname, ...uploaded, uploadedAt: new Date() };
+  };
+  const uploadedLabels = applySignedDocuments(connection, {
+    caf: await store(cafFile, "crm/connections/cafs"),
+    po: await store(poFile, "crm/connections/purchaseOrders"),
+  });
 
   connection.history.push({
     action: "SIGNED_DOCUMENT_UPLOADED",
