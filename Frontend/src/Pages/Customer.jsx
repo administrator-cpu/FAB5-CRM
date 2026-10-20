@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
+import Loading from "../Components/Utils/Loading";
 import CustomerNavBar from "../Components/Navigation/CustomerNavBar";
 import { Outlet, useParams } from "react-router-dom";
 import { useCustomer } from "../Context/CustomerContext";
@@ -17,7 +18,9 @@ function Customer() {
       <CustomerNavBar />
       <section className="flex-1 w-full  p-2 flex gap-2 ">
         <section className="h-[85vh] borer border-black customScroller flex-1 p-2 overflow-y-scroll">
-          <Outlet />
+          <Suspense fallback={<Loading inline />}>
+            <Outlet />
+          </Suspense>
         </section>
       </section>
     </main>

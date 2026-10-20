@@ -5,7 +5,6 @@ import { X } from "lucide-react";
 import { useAuth } from "../../Context/AuthContext";
 import { useCustomer } from "../../Context/CustomerContext";
 import { useConnection } from "../../Context/ConnectionContext";
-import { exportConnectionsToExcel } from "../../Services/ExportToExcel";
 
 import CreateConnection from "../Connection/CreateConnection";
 import ConnectionList from "../Connection/ConnectionList";
@@ -342,7 +341,11 @@ const executeBillingDelete = async () => {
         connectionCount={activeConnections.length}
         onEditClick={() => setIsEditModalOpen(true)}
         onDeleteClick={() => setIsDeleteModalOpen(true)}
-        onExport={() => exportConnectionsToExcel(activeConnections, customer.name)}
+        onExport={async () => {
+          // xlsx is only downloaded when someone exports.
+          const { exportConnectionsToExcel } = await import("../../Services/ExportToExcel");
+          exportConnectionsToExcel(activeConnections, customer.name);
+        }}
       />
 
       <CustomerBillingSection

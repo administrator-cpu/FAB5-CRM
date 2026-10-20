@@ -1,6 +1,6 @@
-import { useAuth } from '../Context/AuthContext';
+import { Suspense } from 'react';
 import NavBar from '../Components/Navigation/NavBar';
-import Overview from '../Components/Dashboard/Overview';
+import Loading from '../Components/Utils/Loading';
 import { Outlet } from 'react-router-dom';
 import { useDashboard } from '../Context/DashboardContext';
 
@@ -12,7 +12,9 @@ function Dashboard() {
   return (
     <main className='h-screen bg-gray-50 flex w-full   '>
       <NavBar counts={metrics?.performance}/>
-      <Outlet/>
+      <Suspense fallback={<Loading inline />}>
+        <Outlet/>
+      </Suspense>
       
 
     </main>

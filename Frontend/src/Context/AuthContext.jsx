@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import toast from "react-hot-toast";
@@ -24,16 +25,35 @@ export const AuthProvider = ({ children }) => {
   const [registerData, setRegisterData] = useState();
   const isAuthenticated = useMemo(() => !!user, [user]);
 
+  // /users/all is the heaviest call in the app and many actions ask for it at once. Calls made while
+  // one is running share it, plus a single follow-up so changes made meanwhile are picked up.
+  const dashboardRequest = useRef(null);
+  const dashboardRefreshQueued = useRef(false);
   const getDashboardData = useCallback(async () => {
-    try {
-      const data = await authService.getAllUsers();
-      setAllData(data);
-      return data;
-    } catch (err) {
-      toast.error("Failed to load dashboard data");
-      return null;
-    } finally {
+    if (dashboardRequest.current) {
+      dashboardRefreshQueued.current = true;
+      return dashboardRequest.current;
     }
+    const load = async () => {
+      try {
+        const data = await authService.getAllUsers();
+        setAllData(data);
+        return data;
+      } catch {
+        toast.error("Failed to load dashboard data");
+        return null;
+      }
+    };
+    dashboardRequest.current = (async () => {
+      let data = await load();
+      while (dashboardRefreshQueued.current) {
+        dashboardRefreshQueued.current = false;
+        data = await load();
+      }
+      dashboardRequest.current = null;
+      return data;
+    })();
+    return dashboardRequest.current;
   }, []);
 
 const fetchUserProfile = useCallback(async () => {
@@ -45,6 +65,7 @@ const fetchUserProfile = useCallback(async () => {
       setUser(parsedUser);
       setLoading(false);
       
+      getDashboardData();
       const { user: freshProfile } = await authService.getProfile();
       
       sessionStorage.setItem("user_profile", JSON.stringify(freshProfile));

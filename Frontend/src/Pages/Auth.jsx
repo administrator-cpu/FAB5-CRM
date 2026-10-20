@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
+import Loading from "../Components/Utils/Loading";
 import {InputUnit} from "../Components/Utils/InputUnit";
 import { MdCheckBoxOutlineBlank } from "react-icons/md";
 
@@ -29,7 +31,9 @@ function Auth() {
         </aside>
         <section className="h-full md:w-[51%]  w-full rounded-[30px] flex flex-col justify-between items-center">
           <div className="p-2">{``}</div>
-          <Outlet/>
+          <Suspense fallback={<Loading inline />}>
+            <Outlet/>
+          </Suspense>
         </section>
       </section>
     </main>

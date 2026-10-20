@@ -2,41 +2,34 @@ import {
   createBrowserRouter,
   createRoutesFromElements,
   Route,
-  Outlet,
-  Navigate,
 } from "react-router-dom";
-import { useAuth } from '../Context/AuthContext'
+import { lazy } from "react";
 import App from "../App";
-import Home from "../Pages/Home";
 import Dashboard from "../Pages/Dashboard";
-import CustomerList from "../Components/Dashboard/CustomerList";
 import Customer from "../Pages/Customer";
-import CustomerSumDetails from "../Components/Dashboard/CustomerSumDetails";
 import Auth from "../Pages/Auth";
-import Login from "../Components/Auth/Login";
-import Signup from "../Components/Auth/Signup";
-import Profile from "../Components/Auth/Profile";
-import OTP from "../Components/Auth/OTP";
-import ResetPassword from "../Components/Auth/ResetPassword";
 import PrivateRoute from "./PrivateRoute";
 import PublicRouter from "./PublicRouter";
-import PageNotFound from "../Components/Utils/PageNotFound";
-import Team from "../Components/Dashboard/Team";
-import AddCustomer from "../Pages/AddCustomer";
-import CreateConnection from "../Components/Connection/CreateConnection";
-import ManageOrder from "../Components/Connection/ManageOrder";
-import HistoryCard from "../Components/Connection/HistoryCard";
-import Overview from "../Components/Dashboard/Overview";
-import Connections from "../Components/Connection/Connections";
-import TeamMate from "../Components/Dashboard/TeamMate";
-import { all } from "axios";
-import EmployeeDashboard from "../Components/Dashboard/EmployeeDashboard";
-import SupportPage from "../Pages/SupportPage";
-import CreateIpOrder from "../Components/Connection/CreateIpConnection";
-import CreateIllOrder from "../Components/Connection/CreateIllConnection";
-import EditRegectedConnection from "../Components/Connection/EditRegectedConnection";
-import BulkConnectionUpload from "../Components/Connection/BulkConnectionUpload";
-import ReportsDashboard from "../Pages/ReportsDashboard";
+
+// Pages load on demand so the first screen doesn't wait for every page (charts, forms, exports) to download.
+const Home = lazy(() => import("../Pages/Home"));
+const CustomerSumDetails = lazy(() => import("../Components/Dashboard/CustomerSumDetails"));
+const Login = lazy(() => import("../Components/Auth/Login"));
+const Signup = lazy(() => import("../Components/Auth/Signup"));
+const Profile = lazy(() => import("../Components/Auth/Profile"));
+const OTP = lazy(() => import("../Components/Auth/OTP"));
+const ResetPassword = lazy(() => import("../Components/Auth/ResetPassword"));
+const PageNotFound = lazy(() => import("../Components/Utils/PageNotFound"));
+const AddCustomer = lazy(() => import("../Pages/AddCustomer"));
+const CreateConnection = lazy(() => import("../Components/Connection/CreateConnection"));
+const ManageOrder = lazy(() => import("../Components/Connection/ManageOrder"));
+const HistoryCard = lazy(() => import("../Components/Connection/HistoryCard"));
+const Overview = lazy(() => import("../Components/Dashboard/Overview"));
+const TeamMate = lazy(() => import("../Components/Dashboard/TeamMate"));
+const SupportPage = lazy(() => import("../Pages/SupportPage"));
+const EditRegectedConnection = lazy(() => import("../Components/Connection/EditRegectedConnection"));
+const BulkConnectionUpload = lazy(() => import("../Components/Connection/BulkConnectionUpload"));
+const ReportsDashboard = lazy(() => import("../Pages/ReportsDashboard"));
 
 
 export const router = createBrowserRouter(

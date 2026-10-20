@@ -1,6 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const compression = require("compression");
 const morgan = require("morgan");
 const cookieParser = require("cookie-parser");
 const mongoSanitize = require("express-mongo-sanitize");
@@ -78,6 +79,10 @@ app.use(cors({
 }));
 
 app.options("*", cors());
+
+// ──────────────── Response Compression ──────────────────────────────
+// Gzip JSON / HTML responses (API payloads shrink ~10x); already-compressed types like PDFs are skipped.
+app.use(compression());
 
 // ──────────────── Body Parsers and Cookie Parser ──────────────────────────────
 app.use(express.json({ limit: '50mb' }));
