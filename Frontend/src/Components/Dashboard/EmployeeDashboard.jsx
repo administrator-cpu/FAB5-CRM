@@ -4,8 +4,6 @@ import { Link } from "react-router-dom";
 // import AllFilter from "./AllFilter";
 import toast from "react-hot-toast";
 import { useConnection } from "../../Context/ConnectionContext";
-import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
 import DashboardData from "../DashboardConections/DashboardData";
 
 const EmployeeDashboard = () => {

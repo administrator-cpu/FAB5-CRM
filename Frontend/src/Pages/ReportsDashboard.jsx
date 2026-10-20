@@ -3,7 +3,6 @@ import { FileSpreadsheet, Activity, Users, Download, Lock, EyeOff, IndianRupee, 
 import toast from 'react-hot-toast';
 import { useAuth } from '../Context/AuthContext';
 import { useConnection } from '../Context/ConnectionContext';
-import { generateRoleBasedReport } from '../Services/ReportExportService';
 import Header from '../Components/ReportsDashboard/Header';
 import StatCard from '../Components/ReportsDashboard/StatCard';
 import { useDashboardAnalytics } from '../Components/ReportsDashboard/useDashboardAnalytics';
@@ -80,6 +79,8 @@ const ReportsDashboard = () => {
     setIsExporting(true);
     const tid = toast.loading("Generating Excel Report...");
     try {
+      // xlsx is only downloaded when someone exports.
+      const { generateRoleBasedReport } = await import('../Services/ReportExportService');
       setTimeout(() => {
         generateRoleBasedReport(isProjectManager ? [] : allData.customers, isProjectManager ? pmData : allData.connections, user?.role);
         toast.success("Report Downloaded Successfully!", { id: tid });
