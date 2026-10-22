@@ -79,15 +79,18 @@ const ReportsDashboard = () => {
     setIsExporting(true);
     const tid = toast.loading("Generating Excel Report...");
     try {
-      // xlsx is only downloaded when someone exports.
       const { generateRoleBasedReport } = await import('../Services/ReportExportService');
-      setTimeout(() => {
-        generateRoleBasedReport(isProjectManager ? [] : allData.customers, isProjectManager ? pmData : allData.connections, user?.role);
-        toast.success("Report Downloaded Successfully!", { id: tid });
-        setIsExporting(false);
-      }, 500);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      generateRoleBasedReport(
+        isProjectManager ? [] : (allData?.customers || []),
+        isProjectManager ? (pmData || []) : (allData?.connections || []),
+        user?.role
+      );
+      toast.success("Report Downloaded Successfully!", { id: tid });
     } catch (error) {
+      console.error("Master report export failed:", error);
       toast.error("Failed to generate report.", { id: tid });
+    } finally {
       setIsExporting(false);
     }
   };
