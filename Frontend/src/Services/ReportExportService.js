@@ -53,7 +53,9 @@ export const generateRoleBasedReport = (customers, connections, userRole) => {
       const bandwidthChanges = conn.history?.filter(h => h.action === 'UPGRADE' || h.action === 'DOWNGRADE');
       const lastChange = bandwidthChanges?.[bandwidthChanges.length - 1];
       
-      row["Old Bandwidth"] = lastChange ? Number(lastChange.note.split('→')[0].replace(/[^0-9]/g, '').trim()) : null;
+      const note = typeof lastChange?.note === 'string' ? lastChange.note : '';
+      const oldBw = note ? Number(note.split('→')[0].replace(/[^0-9]/g, '').trim()) : NaN;
+      row["Old Bandwidth"] = Number.isFinite(oldBw) && oldBw > 0 ? oldBw : null;
     }
 
     row["Bandwidth (Mbps)"] = Number(conn.bandwidth) || 0;
