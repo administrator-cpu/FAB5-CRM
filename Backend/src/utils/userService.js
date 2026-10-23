@@ -5,10 +5,11 @@ const ROLES = require("../constants/roles");
 
 // GET /api/users/all feeds the dashboard lists and analytics, which only need each connection's
 // summary and the history fields used for revenue (action, date, bandwidth, commercials, ips).
+// history.note is kept: the master Excel export reads it for the "Old Bandwidth" column.
 // Documents and the rest of each history snapshot are fetched per connection when it's opened.
 const CONNECTION_LIST_FIELDS = [
   "-generatedDocuments", "-rmacdForms", "-purchaseOrders", "-purchaseOrder", "-caf", "-businessAgreement",
-  "-history.note", "-history.performedBy", "-history.technicalDetails", "-history.providerCost",
+  "-history.performedBy", "-history.technicalDetails", "-history.providerCost",
   "-history.terminationDetails",
 ].join(" ");
 const CUSTOMER_SUMMARY_FIELDS = "name isActive";
