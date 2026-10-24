@@ -6,7 +6,7 @@ import { useConnection } from '../Context/ConnectionContext';
 import Header from '../Components/ReportsDashboard/Header';
 import StatCard from '../Components/ReportsDashboard/StatCard';
 import { useDashboardAnalytics } from '../Components/ReportsDashboard/useDashboardAnalytics';
-import { formatCurrency } from '../Components/Utils/formatters';
+import { formatCurrency, formatBandwidth } from '../Components/Utils/formatters';
 import SystemGrowthChart from '../Components/ReportsDashboard/Charts/SystemGrowthChart';
 import GeoPenetrationChart from '../Components/ReportsDashboard/Charts/GeoPenetrationChart';
 import AtRiskWatchlist from '../Components/ReportsDashboard/Lists/AtRiskWatchlist';
@@ -56,7 +56,10 @@ const ReportsDashboard = () => {
     salesTargetAnalytics,
     fetchOverview, 
     overview 
-  } = useDashboardAnalytics({ allData: drishtiData, pmData: drishtiPmData, isProjectManager, timeRange, adminRules: isAdmin });
+  } = useDashboardAnalytics({ allData: drishtiData, pmData: drishtiPmData, isProjectManager, timeRange, adminRules: isAdmin, ownRateUserId: isEmployee ? (user?._id || user?.id) : null });
+
+  // Employees see only their own Avg Revenue per Mbps (their row of the admin table).
+  const ownRate = isEmployee ? employeeRateAnalytics[0] || null : null;
 
   const salesAchievement = useSalesAchievement(salesTargetAnalytics.events, salesTargetAnalytics.employees);
 
@@ -191,6 +194,25 @@ const ReportsDashboard = () => {
                       <div className="text-xl font-black text-slate-500">—<div className="text-xs font-normal mt-1">No provider cost entered</div></div>
                     )}
                   </div>
+                )}
+              </div>
+            )}
+
+            {isEmployee && (
+              <div className="relative z-10 mt-6 pt-5 border-t border-slate-700">
+                <div className="text-slate-400 text-sm font-medium">Your Avg Revenue per Mbps</div>
+                {ownRate?.revenuePerMb != null ? (
+                  <>
+                    <div className="text-xl font-black text-emerald-50">
+                      {formatCurrency(Math.round(ownRate.revenuePerMb))}
+                      <span className="text-sm text-slate-400 font-semibold"> / Mbps</span>
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      Your {ownRate.circuits} live circuit{ownRate.circuits !== 1 ? 's' : ''} · {formatBandwidth(ownRate.bandwidth)}. {PER_MB_EXCLUSION_NOTE}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xl font-black text-slate-500">—<div className="text-xs font-normal mt-1">No priced live circuits booked by you yet.</div></div>
                 )}
               </div>
             )}

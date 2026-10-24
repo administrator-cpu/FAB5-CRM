@@ -28,7 +28,7 @@ function formatINR(n) {
 // pending: the revenue request is still in flight (drives the loading count-up).
 // storageKey: where the last seen revenue is remembered, so the count-up heads
 // toward a realistic figure while loading.
-function RevenueBanner({ revenue, revenuePerMb = null, pending = false, storageKey = "fab5.revenueBanner.last" }) {
+function RevenueBanner({ revenue, revenuePerMb = null, revenuePerMbLabel = "Avg Revenue per Mbps", pending = false, storageKey = "fab5.revenueBanner.last" }) {
   const { loadingMetrics } = useDashboard();
   const rows = Array.isArray(revenue?.data) ? revenue.data : [];
 
@@ -157,7 +157,7 @@ function RevenueBanner({ revenue, revenuePerMb = null, pending = false, storageK
       {revenuePerMb !== null && (
         <div style={{ minWidth: 0, paddingLeft: 28, borderLeft: "1px solid #ffffff1a" }} title={PER_MB_EXCLUSION_NOTE}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9aa1ad", letterSpacing: ".01em", whiteSpace: "nowrap" }}>
-            Avg Revenue per Mbps
+            {revenuePerMbLabel}
           </span>
           <div style={{ marginTop: 8, display: "flex", alignItems: "baseline", gap: 2, whiteSpace: "nowrap" }}>
             <span
