@@ -92,3 +92,28 @@ export const getMonthShare = (conn, now = new Date()) => {
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   return finalDate.getDate() / daysInMonth;
 };
+
+// ─── Per-Mbps figures ──────────────────────────────────────────────────────
+// Left out of Avg Revenue per Mbps, Airtel Cost per Mbps, Margin per Mbps and the
+// employee table. Totals (revenue, bandwidth, Airtel bill) still include them.
+export const PER_MB_EXCLUDED_SERVICE_TYPES = ['ILL'];
+// Matched ignoring case, spaces and punctuation ("Fab Five Network Pvt Ltd" also matches).
+export const PER_MB_EXCLUDED_CUSTOMERS = ['FAB FIVE NETWORK PVT. LTD'];
+
+const normName = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const EXCLUDED_SERVICE_TYPES = new Set(PER_MB_EXCLUDED_SERVICE_TYPES.map(normName));
+const EXCLUDED_CUSTOMERS = new Set(PER_MB_EXCLUDED_CUSTOMERS.map(normName));
+
+export const PER_MB_EXCLUSION_NOTE = `Excludes ${PER_MB_EXCLUDED_SERVICE_TYPES.join(', ')} circuits and ${PER_MB_EXCLUDED_CUSTOMERS.join(', ')}.`;
+
+/**
+ * True when a connection is left out of the per-Mbps figures.
+ * serviceType: the type the figures are based on (the last activated one while a change is pending).
+ */
+export const isExcludedFromPerMb = (conn, serviceType, customersById) => {
+  if (EXCLUDED_SERVICE_TYPES.has(normName(serviceType ?? conn?.serviceType))) return true;
+  const ref = conn?.customer;
+  const id = ref && typeof ref === 'object' ? ref._id : ref;
+  const name = (ref && typeof ref === 'object' && ref.name) || (id && customersById?.get(String(id))?.name);
+  return EXCLUDED_CUSTOMERS.has(normName(name));
+};

@@ -12,6 +12,7 @@ import GeoPenetrationChart from '../Components/ReportsDashboard/Charts/GeoPenetr
 import AtRiskWatchlist from '../Components/ReportsDashboard/Lists/AtRiskWatchlist';
 import ChurnAcquisitionChart from '../Components/ReportsDashboard/Charts/ChurnAcquisitionChart';
 import TopAccountsList from '../Components/ReportsDashboard/Lists/TopAccountsList';
+import EmployeeRateTable from '../Components/ReportsDashboard/Lists/EmployeeRateTable';
 import CollectionsOverview from '../Components/ReportsDashboard/CollectionsOverview';
 import ServiceTypeChart from '../Components/ReportsDashboard/Charts/ServiceTypeChart';
 import RevenueVsChurnChart from '../Components/ReportsDashboard/Charts/RevenueVsChurnChart';
@@ -20,7 +21,7 @@ import KPISummaryStrip from '../Components/ReportsDashboard/KPISummaryStrip';
 import AlertsRiskCenter from '../Components/ReportsDashboard/AlertsRiskCenter';
 import { useSalesAchievement } from '../Components/ReportsDashboard/useSalesAchievement';
 import { useDashboard } from '../Context/DashboardContext';
-import { excludeTestData, excludeTestPmData } from '../Components/ReportsDashboard/drishtiData';
+import { excludeTestData, excludeTestPmData, PER_MB_EXCLUSION_NOTE } from '../Components/ReportsDashboard/drishtiData';
 
 const ReportsDashboard = () => {
   const { allData, user, loading } = useAuth();
@@ -45,6 +46,7 @@ const ReportsDashboard = () => {
   // 1. Destructure the new fetchOverview and overview state from your hook
   const { 
     summary, 
+    employeeRateAnalytics,
     growthAnalytics, 
     geoAnalytics, 
     whaleAnalytics, 
@@ -166,6 +168,7 @@ const ReportsDashboard = () => {
                     {formatCurrency(Math.round(summary.revenue.sellingRatePerMb || 0))}
                     <span className="text-sm text-slate-400 font-semibold"> / Mbps</span>
                   </div>
+                  <div className="text-xs text-slate-400 mt-1">{PER_MB_EXCLUSION_NOTE}</div>
                 </div>
                 {isAdmin && (
                   <div>
@@ -215,6 +218,13 @@ const ReportsDashboard = () => {
                   employees={salesTargetAnalytics.employees}
                 />
               </div>
+            )}
+
+            {isAdmin && (
+              <EmployeeRateTable
+                data={employeeRateAnalytics}
+                companyAvg={summary.revenue.sellingRatePerMb}
+              />
             )}
 
             {/* BOTTOM ROW: Reusable StatCards */}
