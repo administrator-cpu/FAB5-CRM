@@ -149,6 +149,37 @@ const ReportsDashboard = () => {
                 <div className="text-3xl font-black text-blue-50">{summary.revenue.totalBandwidth.toLocaleString('en-IN')} <span className="text-lg text-slate-400">Mbps</span></div>
               </div>
             </div>
+
+            {!isProjectManager && (
+              <div className={`grid gap-6 relative z-10 mt-6 pt-5 border-t border-slate-700 ${isAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                <div>
+                  <div className="text-slate-400 text-sm font-medium">Avg Selling Rate</div>
+                  <div className="text-xl font-black text-emerald-50">
+                    {formatCurrency(Math.round(summary.revenue.sellingRatePerMb || 0))}
+                    <span className="text-sm text-slate-400 font-semibold"> / Mbps</span>
+                  </div>
+                </div>
+                {isAdmin && (
+                  <div>
+                    <div className="text-slate-400 text-sm font-medium">Airtel Cost</div>
+                    {summary.revenue.costCoverage?.circuits > 0 ? (
+                      <>
+                        <div className="text-xl font-black text-amber-50">
+                          {formatCurrency(Math.round(summary.revenue.costPerMb))}
+                          <span className="text-sm text-slate-400 font-semibold"> / Mbps</span>
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          Margin {formatCurrency(Math.round(summary.revenue.marginPerMb))}/Mbps ·{' '}
+                          {summary.revenue.costCoverage.circuits} of {summary.revenue.costCoverage.total} circuits
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-xl font-black text-slate-500">—<div className="text-xs font-normal mt-1">No provider cost entered</div></div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

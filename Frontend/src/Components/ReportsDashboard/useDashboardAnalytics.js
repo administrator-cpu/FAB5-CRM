@@ -123,10 +123,43 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
       return acc + bandwidth;
     }, 0);
 
+    // Per-Mbps economics across live circuits.
+    // Selling rate uses MRC only (IP charges excluded) so it matches the per-circuit "Rate per MB".
+    const totalLiveMrc = liveConnections.reduce((acc, curr) => acc + getTrueCommercials(curr).mrc, 0);
+    const sellingRatePerMb = totalBandwidth > 0 ? totalLiveMrc / totalBandwidth : 0;
+
+    // Provider (Airtel) cost: only circuits with a provider cost on record, so missing
+    // costs don't drag the average down.
+    let providerCostTotal = 0;
+    let providerCostBandwidth = 0;
+    let providerCostMrcTotal = 0;
+    let providerCostCircuits = 0;
+    liveConnections.forEach((conn) => {
+      const cost = Number(conn.providerCost?.mrc) || 0;
+      if (cost <= 0) return;
+      const { bandwidth, mrc } = getTrueCommercials(conn);
+      if (bandwidth <= 0) return;
+      providerCostTotal += cost;
+      providerCostBandwidth += bandwidth;
+      providerCostMrcTotal += mrc;
+      providerCostCircuits += 1;
+    });
+    const costPerMb = providerCostBandwidth > 0 ? providerCostTotal / providerCostBandwidth : 0;
+    // Margin compares like with like: selling rate on the same circuits that have a cost.
+    const matchedSellingRate = providerCostBandwidth > 0 ? providerCostMrcTotal / providerCostBandwidth : 0;
+    const marginPerMb = providerCostBandwidth > 0 ? matchedSellingRate - costPerMb : 0;
+
     return {
       customers: { total: activeCustomers, active: activeCustomers, inactive: inactiveCustomers, ...typeCounts },
       connections: { total: connections.length, active: activeConns, pending: pendingConns, notice: noticeConns, churned: churnedConns },
-      revenue: { totalLiveRevenue, totalBandwidth }
+      revenue: {
+        totalLiveRevenue,
+        totalBandwidth,
+        sellingRatePerMb,
+        costPerMb,
+        marginPerMb,
+        costCoverage: { circuits: providerCostCircuits, total: liveConnections.length },
+      }
     };
   }, [allData, pmData, isProjectManager]);
 
