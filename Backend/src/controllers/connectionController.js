@@ -1297,7 +1297,7 @@ const getProjectManagerReport = asyncHandler(async (req, res, next) => {
       "opportunityId fabCircuitId telecoCircuitId status serviceType bandwidth technicalDetails acceptanceDate createdAt terminationDetails customer createdBy history"
     )
     .populate("customer", "name")
-    .populate("createdBy", "name")
+    .populate("createdBy", "name email")
     // Optional: Populate the user who performed the history action so you get their name instead of just an ID
     .populate("history.performedBy", "name")
     .lean();
@@ -1306,6 +1306,8 @@ const getProjectManagerReport = asyncHandler(async (req, res, next) => {
     _id: conn._id,
     customerName: conn.customer?.name || "Unknown Customer",
     salesManager: conn.createdBy?.name || "Unknown Manager",
+    // Lets Drishti hide test-account rows; additive, existing fields are unchanged.
+    createdByEmail: conn.createdBy?.email || null,
     telecoCircuitId: conn.telecoCircuitId || "N/A",
     fabCircuitId: conn.fabCircuitId || "N/A",
     opportunityId: conn.opportunityId || "N/A",

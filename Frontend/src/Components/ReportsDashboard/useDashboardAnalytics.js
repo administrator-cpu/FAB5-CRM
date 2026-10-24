@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
 import api from './api';
 import { useAuth } from '../../Context/AuthContext';
+import { getMonthShare } from './drishtiData';
 
 const TERMINAL_STATUSES = ['Disconnected'];
+
+// A live connection in one of these statuses has a change (upgrade, downgrade,
+// shifting, IP addition, rate revision) waiting to be activated.
+const PENDING_CHANGE_STATUSES = ['Pending', 'Approved', 'Generation'];
 
 const TERMINATING_HISTORY_ACTIONS = [
   'TERMINATED',
@@ -38,23 +43,40 @@ const isConnectionTrulyLive = (conn) => {
   return !terminatedSinceActivation;
 };
 
+// While a change is pending, the upgrade/downgrade *request* entry already carries the
+// new values, so it must not count. Prices come from the last activated state until the
+// change is activated (activation pushes a fresh ACTIVATED entry with the new values).
+const PENDING_SAFE_CONFIRMING_ACTIONS = PRICE_CONFIRMING_ACTIONS.filter(
+  (a) => a !== 'UPGRADE' && a !== 'DOWNGRADE'
+);
+
 const getTrueCommercials = (conn) => {
   const history = conn.history || [];
+  const hasPendingChange = PENDING_CHANGE_STATUSES.includes(conn.status);
+  const confirmingActions = hasPendingChange ? PENDING_SAFE_CONFIRMING_ACTIONS : PRICE_CONFIRMING_ACTIONS;
 
   let lastConfirmed = null;
   for (let i = history.length - 1; i >= 0; i--) {
     const h = history[i];
-    if (PRICE_CONFIRMING_ACTIONS.includes(h.action) && h.commercials) {
+    if (confirmingActions.includes(h.action) && h.commercials) {
       lastConfirmed = h;
       break;
     }
   }
+
+  // Airtel cost: requesting a change resets the live value to 0 until it is re-entered,
+  // so during a pending change use the cost saved with the last activated state.
+  // (history.providerCost is only sent to admins.)
+  const providerCostMrc = hasPendingChange
+    ? Number(lastConfirmed?.providerCost?.mrc || 0)
+    : Number(conn.providerCost?.mrc || 0);
 
   if (lastConfirmed) {
     return {
       mrc: Number(lastConfirmed.commercials?.mrc || 0),
       ipsCost: Number(lastConfirmed.ips?.cost || 0),
       bandwidth: Number(lastConfirmed.bandwidth || 0),
+      providerCostMrc,
     };
   }
 
@@ -62,7 +84,15 @@ const getTrueCommercials = (conn) => {
     mrc: Number(conn.commercials?.mrc || 0),
     ipsCost: Number(conn.ips?.cost || 0),
     bandwidth: Number(conn.bandwidth || 0),
+    providerCostMrc,
   };
+};
+
+// Revenue a live connection earns in the current calendar month
+// (full MRC + IPs, reduced for connections terminating this month).
+const getMonthRevenue = (conn, now) => {
+  const { mrc, ipsCost } = getTrueCommercials(conn);
+  return (mrc + ipsCost) * getMonthShare(conn, now);
 };
 
 const isCountableCustomer = (c) => c.isActive !== false;
@@ -112,38 +142,50 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     const churnedConns = connections.filter(c => ['Disconnected'].includes(c.status)).length;
 
     const liveConnections = connections.filter(isConnectionTrulyLive);
+    const now = new Date();
 
-    const totalLiveRevenue = liveConnections.reduce((acc, curr) => {
-      const { mrc, ipsCost } = getTrueCommercials(curr);
-      return acc + mrc + ipsCost;
-    }, 0);
+    // This month's revenue: connections terminating this month count only the days they run.
+    const totalLiveRevenue = liveConnections.reduce((acc, curr) => acc + getMonthRevenue(curr, now), 0);
 
+    // Bandwidth is not reduced: the line stays up until the termination date.
     const totalBandwidth = liveConnections.reduce((acc, curr) => {
       const { bandwidth } = getTrueCommercials(curr);
       return acc + bandwidth;
     }, 0);
 
-    // Per-Mbps economics across live circuits.
-    // Selling rate uses MRC only (IP charges excluded) so it matches the per-circuit "Rate per MB".
-    const totalLiveMrc = liveConnections.reduce((acc, curr) => acc + getTrueCommercials(curr).mrc, 0);
-    const sellingRatePerMb = totalBandwidth > 0 ? totalLiveMrc / totalBandwidth : 0;
-
-    // Provider (Airtel) cost: only circuits with a provider cost on record, so missing
-    // costs don't drag the average down.
+    // Per-Mbps rates use full monthly prices. Reducing price and cost for a short month
+    // would not change what one Mbps costs, so rates are not prorated.
+    // Selling rate: MRC only (IP charges excluded) to match the per-circuit "Rate per MB",
+    // and only circuits with a price, so ₹0 circuits (trials, missing data) don't drag it down.
+    let sellingMrcTotal = 0;
+    let sellingBandwidth = 0;
+    // Airtel cost: only circuits with a cost on record, so missing costs don't drag it down.
     let providerCostTotal = 0;
     let providerCostBandwidth = 0;
     let providerCostMrcTotal = 0;
     let providerCostCircuits = 0;
+    // Airtel bill for this month, reduced like revenue for connections terminating this month.
+    let providerCostThisMonth = 0;
+
     liveConnections.forEach((conn) => {
-      const cost = Number(conn.providerCost?.mrc) || 0;
-      if (cost <= 0) return;
-      const { bandwidth, mrc } = getTrueCommercials(conn);
+      const { bandwidth, mrc, providerCostMrc } = getTrueCommercials(conn);
       if (bandwidth <= 0) return;
-      providerCostTotal += cost;
-      providerCostBandwidth += bandwidth;
-      providerCostMrcTotal += mrc;
-      providerCostCircuits += 1;
+
+      if (mrc > 0) {
+        sellingMrcTotal += mrc;
+        sellingBandwidth += bandwidth;
+      }
+
+      if (providerCostMrc > 0) {
+        providerCostTotal += providerCostMrc;
+        providerCostBandwidth += bandwidth;
+        providerCostMrcTotal += mrc;
+        providerCostCircuits += 1;
+        providerCostThisMonth += providerCostMrc * getMonthShare(conn, now);
+      }
     });
+
+    const sellingRatePerMb = sellingBandwidth > 0 ? sellingMrcTotal / sellingBandwidth : 0;
     const costPerMb = providerCostBandwidth > 0 ? providerCostTotal / providerCostBandwidth : 0;
     // Margin compares like with like: selling rate on the same circuits that have a cost.
     const matchedSellingRate = providerCostBandwidth > 0 ? providerCostMrcTotal / providerCostBandwidth : 0;
@@ -158,6 +200,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
         sellingRatePerMb,
         costPerMb,
         marginPerMb,
+        providerCostThisMonth,
         costCoverage: { circuits: providerCostCircuits, total: liveConnections.length },
       }
     };
@@ -230,6 +273,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
   const geoAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections || !allData?.customers) return [];
     const stateRevenue = {};
+    const now = new Date();
     const customersById = new Map(allData.customers.map((c) => [String(c._id), c]));
 
     allData.connections
@@ -242,8 +286,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
 
         if (rawState) {
           const state = rawState.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-          const { mrc, ipsCost } = getTrueCommercials(conn);
-          stateRevenue[state] = (stateRevenue[state] || 0) + mrc + ipsCost;
+          stateRevenue[state] = (stateRevenue[state] || 0) + getMonthRevenue(conn, now);
         }
       });
 
@@ -253,6 +296,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
   const whaleAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections) return [];
     const customerTotals = {};
+    const now = new Date();
     const customersById = new Map((allData.customers || []).map((c) => [String(c._id), c]));
 
     allData.connections
@@ -260,8 +304,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
       .filter(isConnectionTrulyLive)
       .forEach(conn => {
         const custName = conn.customer?.name || 'Unknown Customer';
-        const { mrc, ipsCost } = getTrueCommercials(conn);
-        const circuitRevenue = mrc + ipsCost;
+        const circuitRevenue = getMonthRevenue(conn, now);
 
         if (!customerTotals[custName]) customerTotals[custName] = { name: custName, totalRevenue: 0, circuitCount: 0 };
         customerTotals[custName].totalRevenue += circuitRevenue;
@@ -448,6 +491,7 @@ const churnAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections) return [];
 
     const productTotals = {};
+    const now = new Date();
     const customersById = new Map((allData.customers || []).map((c) => [String(c._id), c]));
 
     allData.connections
@@ -455,8 +499,7 @@ const churnAnalytics = useMemo(() => {
       .filter(isConnectionTrulyLive)
       .forEach(conn => {
         const serviceType = conn.serviceType || 'Unspecified';
-        const { mrc, ipsCost } = getTrueCommercials(conn);
-        const revenue = mrc + ipsCost;
+        const revenue = getMonthRevenue(conn, now);
 
         if (!productTotals[serviceType]) {
           productTotals[serviceType] = 0;

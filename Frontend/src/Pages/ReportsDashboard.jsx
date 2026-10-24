@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FileSpreadsheet, Activity, Users, Download, Lock, EyeOff, IndianRupee, Wifi, CheckCircle2, Clock, AlertCircle, XCircle, Building2, Globe, Briefcase, Landmark } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../Context/AuthContext';
@@ -20,6 +20,7 @@ import KPISummaryStrip from '../Components/ReportsDashboard/KPISummaryStrip';
 import AlertsRiskCenter from '../Components/ReportsDashboard/AlertsRiskCenter';
 import { useSalesAchievement } from '../Components/ReportsDashboard/useSalesAchievement';
 import { useDashboard } from '../Context/DashboardContext';
+import { excludeTestData, excludeTestPmData } from '../Components/ReportsDashboard/drishtiData';
 
 const ReportsDashboard = () => {
   const { allData, user, loading } = useAuth();
@@ -35,6 +36,10 @@ const ReportsDashboard = () => {
   const isEmployee = user?.role === 'employee';
   const isRestrictedRole = user?.role === 'owner' || user?.role === 'order_generation';
 
+  // Test-account data is hidden from Drishti and the Master Report (see drishtiData.js).
+  const drishtiData = useMemo(() => excludeTestData(allData, user), [allData, user]);
+  const drishtiPmData = useMemo(() => excludeTestPmData(pmData), [pmData]);
+
   // 1. Destructure the new fetchOverview and overview state from your hook
   const { 
     summary, 
@@ -47,7 +52,7 @@ const ReportsDashboard = () => {
     salesTargetAnalytics,
     fetchOverview, 
     overview 
-  } = useDashboardAnalytics({ allData, pmData, isProjectManager, timeRange });
+  } = useDashboardAnalytics({ allData: drishtiData, pmData: drishtiPmData, isProjectManager, timeRange });
 
   const salesAchievement = useSalesAchievement(salesTargetAnalytics.events, salesTargetAnalytics.employees);
 
@@ -82,8 +87,8 @@ const ReportsDashboard = () => {
       const { generateRoleBasedReport } = await import('../Services/ReportExportService');
       await new Promise((resolve) => setTimeout(resolve, 50));
       generateRoleBasedReport(
-        isProjectManager ? [] : (allData?.customers || []),
-        isProjectManager ? (pmData || []) : (allData?.connections || []),
+        isProjectManager ? [] : (drishtiData?.customers || []),
+        isProjectManager ? (drishtiPmData || []) : (drishtiData?.connections || []),
         user?.role
       );
       toast.success("Report Downloaded Successfully!", { id: tid });
@@ -171,6 +176,9 @@ const ReportsDashboard = () => {
                         <div className="text-xs text-slate-400 mt-1">
                           Margin {formatCurrency(Math.round(summary.revenue.marginPerMb))}/Mbps ·{' '}
                           {summary.revenue.costCoverage.circuits} of {summary.revenue.costCoverage.total} circuits
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          Airtel bill this month {formatCurrency(Math.round(summary.revenue.providerCostThisMonth || 0))}
                         </div>
                       </>
                     ) : (
