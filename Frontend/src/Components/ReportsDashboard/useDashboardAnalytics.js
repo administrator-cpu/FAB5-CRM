@@ -113,8 +113,11 @@ const isCountableConnection = (conn, customersById) => {
   return true;
 };
 
-export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeRange, collectionsData, adminRules = false }) => {
+export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeRange, collectionsData, adminRules = false, ownRateUserId = null }) => {
   const newRules = !!adminRules;
+  // ownRateUserId: an employee who sees only their own Avg Revenue per Mbps.
+  // Their figure uses the same rules as their row in the admin table.
+  const perMbRules = newRules || !!ownRateUserId;
   const [overview, setOverview] = useState(null);
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -588,7 +591,7 @@ const churnAnalytics = useMemo(() => {
   // Excel "Sales Manager"), pending changes at their last activated values,
   // ₹0 circuits skipped from the rate. Margin uses only circuits with an Airtel cost.
   const employeeRateAnalytics = useMemo(() => {
-    if (!newRules || isProjectManager || !allData?.connections) return [];
+    if (!perMbRules || isProjectManager || !allData?.connections) return [];
     const now = new Date();
     const customersById = new Map((allData.customers || []).map((c) => [String(c._id), c]));
     const usersById = new Map((allData.users || []).map((u) => [String(u._id || u.id), u]));
@@ -598,12 +601,14 @@ const churnAnalytics = useMemo(() => {
       .filter((c) => isCountableConnection(c, customersById))
       .filter(isConnectionTrulyLive)
       .forEach((conn) => {
-        const { bandwidth, mrc, providerCostMrc, serviceType } = getTrueCommercials(conn, newRules);
+        const { bandwidth, mrc, providerCostMrc, serviceType } = getTrueCommercials(conn, perMbRules);
         if (bandwidth <= 0) return;
         if (isExcludedFromPerMb(conn, serviceType, customersById)) return;
 
         const ref = conn.createdBy;
         const id = ref?._id ? String(ref._id) : (ref ? String(ref) : 'unassigned');
+        // An employee only gets their own row.
+        if (ownRateUserId && id !== String(ownRateUserId)) return;
         const user = usersById.get(id);
         if (!rows.has(id)) {
           rows.set(id, {
@@ -623,7 +628,7 @@ const churnAnalytics = useMemo(() => {
         const row = rows.get(id);
         row.circuits += 1;
         row.bandwidth += bandwidth;
-        row.monthRevenue += getMonthRevenue(conn, now, newRules);
+        row.monthRevenue += getMonthRevenue(conn, now, perMbRules);
         if (mrc > 0) {
           row.pricedMrc += mrc;
           row.pricedBandwidth += bandwidth;
@@ -647,7 +652,7 @@ const churnAnalytics = useMemo(() => {
         marginPerMb: r.costBandwidth > 0 ? (r.costMrc - r.costTotal) / r.costBandwidth : null,
       }))
       .sort((a, b) => (b.revenuePerMb ?? -1) - (a.revenuePerMb ?? -1));
-  }, [allData, isProjectManager, newRules]);
+  }, [allData, isProjectManager, perMbRules, ownRateUserId]);
 
   return {
     summary,

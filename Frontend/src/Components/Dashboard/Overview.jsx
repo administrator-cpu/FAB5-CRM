@@ -38,11 +38,15 @@ function Overview() {
     const analyticsData = useMemo(() => (isAdmin ? excludeTestData(allData, user) : allData), [allData, user, isAdmin]);
     const {
       summary,
+      employeeRateAnalytics,
       growthAnalytics, 
       loading: revenueLoading,
       fetchOverview, 
-    } = useDashboardAnalytics({ allData: analyticsData, pmData, isProjectManager, adminRules: isAdmin });
-    const revenuePerMb = isAdmin && summary ? summary.revenue?.sellingRatePerMb ?? null : null;
+    } = useDashboardAnalytics({ allData: analyticsData, pmData, isProjectManager, adminRules: isAdmin, ownRateUserId: isEmployee ? (user?._id || user?.id) : null });
+    // Admins: company figure. Employees: only their own figure (null hides it).
+    const revenuePerMb = isAdmin
+      ? (summary ? summary.revenue?.sellingRatePerMb ?? null : null)
+      : isEmployee ? (employeeRateAnalytics[0]?.revenuePerMb ?? null) : null;
       useEffect(() => {
         // Only project managers use this report; admins never read it, so they skip the request.
         if (isProjectManager) {
@@ -82,7 +86,7 @@ function Overview() {
         <SearchBar />
       </div> */}
       <DashboardHeader/>
-     {(isEmployee||isAdmin)&& <RevenueBanner revenue={growthAnalytics} revenuePerMb={revenuePerMb} pending={revenueLoading} storageKey={`fab5.revenueBanner.${user?.email || "me"}`}/>}
+     {(isEmployee||isAdmin)&& <RevenueBanner revenue={growthAnalytics} revenuePerMb={revenuePerMb} pending={revenueLoading} revenuePerMbLabel={isEmployee ? "Your Avg Revenue per Mbps" : "Avg Revenue per Mbps"} storageKey={`fab5.revenueBanner.${user?.email || "me"}`}/>}
 
       {privileged && <FlowNav />}
 
