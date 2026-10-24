@@ -36,9 +36,11 @@ const ReportsDashboard = () => {
   const isEmployee = user?.role === 'employee';
   const isRestrictedRole = user?.role === 'owner' || user?.role === 'order_generation';
 
-  // Test-account data is hidden from Drishti and the Master Report (see drishtiData.js).
-  const drishtiData = useMemo(() => excludeTestData(allData, user), [allData, user]);
-  const drishtiPmData = useMemo(() => excludeTestPmData(pmData), [pmData]);
+  // Drishti updates are admin-only for now: admins get the test-account filter, the
+  // pending-change and Notice Period rules, and the per-Mbps figures. Everyone else
+  // sees Drishti and the Master Report exactly as before.
+  const drishtiData = useMemo(() => (isAdmin ? excludeTestData(allData, user) : allData), [allData, user, isAdmin]);
+  const drishtiPmData = useMemo(() => (isAdmin ? excludeTestPmData(pmData) : pmData), [pmData, isAdmin]);
 
   // 1. Destructure the new fetchOverview and overview state from your hook
   const { 
@@ -52,7 +54,7 @@ const ReportsDashboard = () => {
     salesTargetAnalytics,
     fetchOverview, 
     overview 
-  } = useDashboardAnalytics({ allData: drishtiData, pmData: drishtiPmData, isProjectManager, timeRange });
+  } = useDashboardAnalytics({ allData: drishtiData, pmData: drishtiPmData, isProjectManager, timeRange, adminRules: isAdmin });
 
   const salesAchievement = useSalesAchievement(salesTargetAnalytics.events, salesTargetAnalytics.employees);
 
@@ -155,10 +157,10 @@ const ReportsDashboard = () => {
               </div>
             </div>
 
-            {!isProjectManager && (
-              <div className={`grid gap-6 relative z-10 mt-6 pt-5 border-t border-slate-700 ${isAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {isAdmin && (
+              <div className="grid grid-cols-2 gap-6 relative z-10 mt-6 pt-5 border-t border-slate-700">
                 <div>
-                  <div className="text-slate-400 text-sm font-medium">Avg Selling Rate</div>
+                  <div className="text-slate-400 text-sm font-medium">Avg Revenue per Mbps</div>
                   <div className="text-xl font-black text-emerald-50">
                     {formatCurrency(Math.round(summary.revenue.sellingRatePerMb || 0))}
                     <span className="text-sm text-slate-400 font-semibold"> / Mbps</span>

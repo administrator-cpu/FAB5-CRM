@@ -10,7 +10,8 @@ function formatINR(n) {
   return { value: String(Math.round(n)), unit: "" };
 }
 
-function RevenueBanner({ revenue }) {
+// revenuePerMb: admin-only figure (live MRC ÷ live Mbps); null hides it.
+function RevenueBanner({ revenue, revenuePerMb = null }) {
   const { loadingMetrics } = useDashboard();
   const rows = Array.isArray(revenue?.data) ? revenue.data : [];
 
@@ -68,6 +69,7 @@ function RevenueBanner({ revenue }) {
         }}
       />
 
+      <div style={{ display: "flex", alignItems: "center", gap: 28, minWidth: 0, flexWrap: "wrap" }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9aa1ad", letterSpacing: ".01em" }}>
@@ -110,6 +112,30 @@ function RevenueBanner({ revenue }) {
             </span>
           )}
         </div>
+      </div>
+
+      {revenuePerMb !== null && (
+        <div style={{ minWidth: 0, paddingLeft: 28, borderLeft: "1px solid #ffffff1a" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9aa1ad", letterSpacing: ".01em", whiteSpace: "nowrap" }}>
+            Avg Revenue per Mbps
+          </span>
+          <div style={{ marginTop: 8, display: "flex", alignItems: "baseline", gap: 2, whiteSpace: "nowrap" }}>
+            <span
+              style={{
+                fontSize: 28,
+                fontWeight: 650,
+                lineHeight: 1,
+                letterSpacing: "-.02em",
+                color: "#fff",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              ₹{Math.round(revenuePerMb).toLocaleString("en-IN")}
+            </span>
+            <span style={{ marginLeft: 6, fontSize: 13, fontWeight: 600, color: "#8b929e" }}>/ Mbps</span>
+          </div>
+        </div>
+      )}
       </div>
 
       <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flex: "0 0 auto" }}>

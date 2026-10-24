@@ -50,9 +50,11 @@ const PENDING_SAFE_CONFIRMING_ACTIONS = PRICE_CONFIRMING_ACTIONS.filter(
   (a) => a !== 'UPGRADE' && a !== 'DOWNGRADE'
 );
 
-const getTrueCommercials = (conn) => {
+// newRules (admins only for now): pending-change and Notice Period proration rules.
+// With newRules false the original calculation is used unchanged.
+const getTrueCommercials = (conn, newRules = false) => {
   const history = conn.history || [];
-  const hasPendingChange = PENDING_CHANGE_STATUSES.includes(conn.status);
+  const hasPendingChange = newRules && PENDING_CHANGE_STATUSES.includes(conn.status);
   const confirmingActions = hasPendingChange ? PENDING_SAFE_CONFIRMING_ACTIONS : PRICE_CONFIRMING_ACTIONS;
 
   let lastConfirmed = null;
@@ -90,9 +92,9 @@ const getTrueCommercials = (conn) => {
 
 // Revenue a live connection earns in the current calendar month
 // (full MRC + IPs, reduced for connections terminating this month).
-const getMonthRevenue = (conn, now) => {
-  const { mrc, ipsCost } = getTrueCommercials(conn);
-  return (mrc + ipsCost) * getMonthShare(conn, now);
+const getMonthRevenue = (conn, now, newRules = false) => {
+  const { mrc, ipsCost } = getTrueCommercials(conn, newRules);
+  return (mrc + ipsCost) * (newRules ? getMonthShare(conn, now) : 1);
 };
 
 const isCountableCustomer = (c) => c.isActive !== false;
@@ -107,7 +109,8 @@ const isCountableConnection = (conn, customersById) => {
   return true;
 };
 
-export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeRange, collectionsData }) => {
+export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeRange, collectionsData, adminRules = false }) => {
+  const newRules = !!adminRules;
   const [overview, setOverview] = useState(null);
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -145,11 +148,11 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     const now = new Date();
 
     // This month's revenue: connections terminating this month count only the days they run.
-    const totalLiveRevenue = liveConnections.reduce((acc, curr) => acc + getMonthRevenue(curr, now), 0);
+    const totalLiveRevenue = liveConnections.reduce((acc, curr) => acc + getMonthRevenue(curr, now, newRules), 0);
 
     // Bandwidth is not reduced: the line stays up until the termination date.
     const totalBandwidth = liveConnections.reduce((acc, curr) => {
-      const { bandwidth } = getTrueCommercials(curr);
+      const { bandwidth } = getTrueCommercials(curr, newRules);
       return acc + bandwidth;
     }, 0);
 
@@ -168,7 +171,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     let providerCostThisMonth = 0;
 
     liveConnections.forEach((conn) => {
-      const { bandwidth, mrc, providerCostMrc } = getTrueCommercials(conn);
+      const { bandwidth, mrc, providerCostMrc } = getTrueCommercials(conn, newRules);
       if (bandwidth <= 0) return;
 
       if (mrc > 0) {
@@ -204,7 +207,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
         costCoverage: { circuits: providerCostCircuits, total: liveConnections.length },
       }
     };
-  }, [allData, pmData, isProjectManager]);
+  }, [allData, pmData, isProjectManager, newRules]);
 
   let cancelled = false;
 
@@ -286,12 +289,12 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
 
         if (rawState) {
           const state = rawState.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-          stateRevenue[state] = (stateRevenue[state] || 0) + getMonthRevenue(conn, now);
+          stateRevenue[state] = (stateRevenue[state] || 0) + getMonthRevenue(conn, now, newRules);
         }
       });
 
     return Object.keys(stateRevenue).map(key => ({ state: key, revenue: stateRevenue[key] })).sort((a, b) => b.revenue - a.revenue);
-  }, [allData, isProjectManager]);
+  }, [allData, isProjectManager, newRules]);
 
   const whaleAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections) return [];
@@ -304,7 +307,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
       .filter(isConnectionTrulyLive)
       .forEach(conn => {
         const custName = conn.customer?.name || 'Unknown Customer';
-        const circuitRevenue = getMonthRevenue(conn, now);
+        const circuitRevenue = getMonthRevenue(conn, now, newRules);
 
         if (!customerTotals[custName]) customerTotals[custName] = { name: custName, totalRevenue: 0, circuitCount: 0 };
         customerTotals[custName].totalRevenue += circuitRevenue;
@@ -312,7 +315,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
       });
 
     return Object.values(customerTotals).sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 5);
-  }, [allData, isProjectManager]);
+  }, [allData, isProjectManager, newRules]);
 
   const atRiskAnalytics = useMemo(() => {
     const allConnections = isProjectManager ? pmData : (allData?.connections || []);
@@ -322,7 +325,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     let totalRiskMRR = 0;
 
     const mappedConnections = noticeConnections.map(conn => {
-      const { mrc, ipsCost, bandwidth } = getTrueCommercials(conn);
+      const { mrc, ipsCost, bandwidth } = getTrueCommercials(conn, newRules);
       const revenue = mrc + ipsCost;
       totalRiskMRR += revenue;
 
@@ -336,7 +339,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     }).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
 
     return { connections: mappedConnections, totalRiskMRR };
-  }, [allData, pmData, isProjectManager]);
+  }, [allData, pmData, isProjectManager, newRules]);
 
 // const churnAnalytics = useMemo(() => {
 //   const allConnections = isProjectManager ? pmData : (allData?.connections || []);
@@ -438,7 +441,7 @@ const churnAnalytics = useMemo(() => {
     Number(h.commercials?.mrc || 0) + Number(h.ips?.cost || 0);
 
   connections.forEach((conn) => {
-    const { mrc, ipsCost } = getTrueCommercials(conn);
+    const { mrc, ipsCost } = getTrueCommercials(conn, newRules);
     const currentTrueRevenue = mrc + ipsCost; // used for churn
 
     let seenFirstActivation = false;
@@ -485,7 +488,7 @@ const churnAnalytics = useMemo(() => {
   return Array.from(monthlyData.values())
     .sort((a, b) => a.rawDate - b.rawDate)
     .filter((r) => r.Revenue !== 0 || r.ChurnMRR !== 0 || r.Activated !== 0 || r.Churned !== 0);
-}, [allData, pmData, isProjectManager]);
+}, [allData, pmData, isProjectManager, newRules]);
 
   const productAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections) return [];
@@ -499,7 +502,7 @@ const churnAnalytics = useMemo(() => {
       .filter(isConnectionTrulyLive)
       .forEach(conn => {
         const serviceType = conn.serviceType || 'Unspecified';
-        const revenue = getMonthRevenue(conn, now);
+        const revenue = getMonthRevenue(conn, now, newRules);
 
         if (!productTotals[serviceType]) {
           productTotals[serviceType] = 0;
@@ -519,7 +522,7 @@ const churnAnalytics = useMemo(() => {
     }
 
     return sortedData;
-  }, [allData, isProjectManager]);
+  }, [allData, isProjectManager, newRules]);
 
   // Bandwidth "sold" events (used to drive the Sales vs Target chart) — one
   // entry per connection at its first ACTIVATED date, tagged with the
@@ -539,7 +542,7 @@ const churnAnalytics = useMemo(() => {
       const date = new Date(conn.createdAt);
       if (isNaN(date.getTime())) return;
 
-      const { bandwidth } = getTrueCommercials(conn);
+      const { bandwidth } = getTrueCommercials(conn, newRules);
       if (!bandwidth) return;
 
       const createdBy = conn.createdBy;
@@ -565,7 +568,7 @@ const churnAnalytics = useMemo(() => {
     }
 
     return { events, employees };
-  }, [allData, pmData, isProjectManager, user]);
+  }, [allData, pmData, isProjectManager, user, newRules]);
 
   return {
     summary,
