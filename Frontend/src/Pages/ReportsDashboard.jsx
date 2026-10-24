@@ -12,6 +12,7 @@ import GeoPenetrationChart from '../Components/ReportsDashboard/Charts/GeoPenetr
 import AtRiskWatchlist from '../Components/ReportsDashboard/Lists/AtRiskWatchlist';
 import ChurnAcquisitionChart from '../Components/ReportsDashboard/Charts/ChurnAcquisitionChart';
 import TopAccountsList from '../Components/ReportsDashboard/Lists/TopAccountsList';
+import EmployeeRateTable from '../Components/ReportsDashboard/Lists/EmployeeRateTable';
 import CollectionsOverview from '../Components/ReportsDashboard/CollectionsOverview';
 import ServiceTypeChart from '../Components/ReportsDashboard/Charts/ServiceTypeChart';
 import RevenueVsChurnChart from '../Components/ReportsDashboard/Charts/RevenueVsChurnChart';
@@ -45,6 +46,7 @@ const ReportsDashboard = () => {
   // 1. Destructure the new fetchOverview and overview state from your hook
   const { 
     summary, 
+    employeeRateAnalytics,
     growthAnalytics, 
     geoAnalytics, 
     whaleAnalytics, 
@@ -215,6 +217,13 @@ const ReportsDashboard = () => {
                   employees={salesTargetAnalytics.employees}
                 />
               </div>
+            )}
+
+            {isAdmin && (
+              <EmployeeRateTable
+                data={employeeRateAnalytics}
+                companyAvg={summary.revenue.sellingRatePerMb}
+              />
             )}
 
             {/* BOTTOM ROW: Reusable StatCards */}

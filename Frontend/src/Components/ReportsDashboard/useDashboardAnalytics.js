@@ -570,8 +570,75 @@ const churnAnalytics = useMemo(() => {
     return { events, employees };
   }, [allData, pmData, isProjectManager, user, newRules]);
 
+  // Avg Revenue per Mbps split by employee (admins only for now).
+  // Same rules as the company figure (combined, the rows give the company average):
+  // live connections, credited to the employee who booked them (createdBy, the
+  // Excel "Sales Manager"), pending changes at their last activated values,
+  // ₹0 circuits skipped from the rate. Margin uses only circuits with an Airtel cost.
+  const employeeRateAnalytics = useMemo(() => {
+    if (!newRules || isProjectManager || !allData?.connections) return [];
+    const now = new Date();
+    const customersById = new Map((allData.customers || []).map((c) => [String(c._id), c]));
+    const usersById = new Map((allData.users || []).map((u) => [String(u._id || u.id), u]));
+    const rows = new Map();
+
+    allData.connections
+      .filter((c) => isCountableConnection(c, customersById))
+      .filter(isConnectionTrulyLive)
+      .forEach((conn) => {
+        const { bandwidth, mrc, providerCostMrc } = getTrueCommercials(conn, newRules);
+        if (bandwidth <= 0) return;
+
+        const ref = conn.createdBy;
+        const id = ref?._id ? String(ref._id) : (ref ? String(ref) : 'unassigned');
+        const user = usersById.get(id);
+        if (!rows.has(id)) {
+          rows.set(id, {
+            id,
+            name: ref?.name || user?.name || 'Unassigned',
+            isActive: user ? user.isActive !== false : true,
+            circuits: 0,
+            bandwidth: 0,
+            monthRevenue: 0,
+            pricedMrc: 0,
+            pricedBandwidth: 0,
+            costTotal: 0,
+            costMrc: 0,
+            costBandwidth: 0,
+          });
+        }
+        const row = rows.get(id);
+        row.circuits += 1;
+        row.bandwidth += bandwidth;
+        row.monthRevenue += getMonthRevenue(conn, now, newRules);
+        if (mrc > 0) {
+          row.pricedMrc += mrc;
+          row.pricedBandwidth += bandwidth;
+        }
+        if (providerCostMrc > 0) {
+          row.costTotal += providerCostMrc;
+          row.costMrc += mrc;
+          row.costBandwidth += bandwidth;
+        }
+      });
+
+    return Array.from(rows.values())
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        isActive: r.isActive,
+        circuits: r.circuits,
+        bandwidth: r.bandwidth,
+        monthRevenue: r.monthRevenue,
+        revenuePerMb: r.pricedBandwidth > 0 ? r.pricedMrc / r.pricedBandwidth : null,
+        marginPerMb: r.costBandwidth > 0 ? (r.costMrc - r.costTotal) / r.costBandwidth : null,
+      }))
+      .sort((a, b) => (b.revenuePerMb ?? -1) - (a.revenuePerMb ?? -1));
+  }, [allData, isProjectManager, newRules]);
+
   return {
     summary,
+    employeeRateAnalytics,
     growthAnalytics,
     cancelled,
     geoAnalytics,
