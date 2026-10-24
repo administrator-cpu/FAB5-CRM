@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
 import api from './api';
 import { useAuth } from '../../Context/AuthContext';
+import { getMonthShare } from './drishtiData';
 
 const TERMINAL_STATUSES = ['Disconnected'];
+
+// A live connection in one of these statuses has a change (upgrade, downgrade,
+// shifting, IP addition, rate revision) waiting to be activated.
+const PENDING_CHANGE_STATUSES = ['Pending', 'Approved', 'Generation'];
 
 const TERMINATING_HISTORY_ACTIONS = [
   'TERMINATED',
@@ -38,23 +43,42 @@ const isConnectionTrulyLive = (conn) => {
   return !terminatedSinceActivation;
 };
 
-const getTrueCommercials = (conn) => {
+// While a change is pending, the upgrade/downgrade *request* entry already carries the
+// new values, so it must not count. Prices come from the last activated state until the
+// change is activated (activation pushes a fresh ACTIVATED entry with the new values).
+const PENDING_SAFE_CONFIRMING_ACTIONS = PRICE_CONFIRMING_ACTIONS.filter(
+  (a) => a !== 'UPGRADE' && a !== 'DOWNGRADE'
+);
+
+// newRules (admins only for now): pending-change and Notice Period proration rules.
+// With newRules false the original calculation is used unchanged.
+const getTrueCommercials = (conn, newRules = false) => {
   const history = conn.history || [];
+  const hasPendingChange = newRules && PENDING_CHANGE_STATUSES.includes(conn.status);
+  const confirmingActions = hasPendingChange ? PENDING_SAFE_CONFIRMING_ACTIONS : PRICE_CONFIRMING_ACTIONS;
 
   let lastConfirmed = null;
   for (let i = history.length - 1; i >= 0; i--) {
     const h = history[i];
-    if (PRICE_CONFIRMING_ACTIONS.includes(h.action) && h.commercials) {
+    if (confirmingActions.includes(h.action) && h.commercials) {
       lastConfirmed = h;
       break;
     }
   }
+
+  // Airtel cost: requesting a change resets the live value to 0 until it is re-entered,
+  // so during a pending change use the cost saved with the last activated state.
+  // (history.providerCost is only sent to admins.)
+  const providerCostMrc = hasPendingChange
+    ? Number(lastConfirmed?.providerCost?.mrc || 0)
+    : Number(conn.providerCost?.mrc || 0);
 
   if (lastConfirmed) {
     return {
       mrc: Number(lastConfirmed.commercials?.mrc || 0),
       ipsCost: Number(lastConfirmed.ips?.cost || 0),
       bandwidth: Number(lastConfirmed.bandwidth || 0),
+      providerCostMrc,
     };
   }
 
@@ -62,7 +86,15 @@ const getTrueCommercials = (conn) => {
     mrc: Number(conn.commercials?.mrc || 0),
     ipsCost: Number(conn.ips?.cost || 0),
     bandwidth: Number(conn.bandwidth || 0),
+    providerCostMrc,
   };
+};
+
+// Revenue a live connection earns in the current calendar month
+// (full MRC + IPs, reduced for connections terminating this month).
+const getMonthRevenue = (conn, now, newRules = false) => {
+  const { mrc, ipsCost } = getTrueCommercials(conn, newRules);
+  return (mrc + ipsCost) * (newRules ? getMonthShare(conn, now) : 1);
 };
 
 const isCountableCustomer = (c) => c.isActive !== false;
@@ -77,7 +109,8 @@ const isCountableConnection = (conn, customersById) => {
   return true;
 };
 
-export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeRange, collectionsData }) => {
+export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeRange, collectionsData, adminRules = false }) => {
+  const newRules = !!adminRules;
   const [overview, setOverview] = useState(null);
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -112,23 +145,69 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     const churnedConns = connections.filter(c => ['Disconnected'].includes(c.status)).length;
 
     const liveConnections = connections.filter(isConnectionTrulyLive);
+    const now = new Date();
 
-    const totalLiveRevenue = liveConnections.reduce((acc, curr) => {
-      const { mrc, ipsCost } = getTrueCommercials(curr);
-      return acc + mrc + ipsCost;
-    }, 0);
+    // This month's revenue: connections terminating this month count only the days they run.
+    const totalLiveRevenue = liveConnections.reduce((acc, curr) => acc + getMonthRevenue(curr, now, newRules), 0);
 
+    // Bandwidth is not reduced: the line stays up until the termination date.
     const totalBandwidth = liveConnections.reduce((acc, curr) => {
-      const { bandwidth } = getTrueCommercials(curr);
+      const { bandwidth } = getTrueCommercials(curr, newRules);
       return acc + bandwidth;
     }, 0);
+
+    // Per-Mbps rates use full monthly prices. Reducing price and cost for a short month
+    // would not change what one Mbps costs, so rates are not prorated.
+    // Selling rate: MRC only (IP charges excluded) to match the per-circuit "Rate per MB",
+    // and only circuits with a price, so ₹0 circuits (trials, missing data) don't drag it down.
+    let sellingMrcTotal = 0;
+    let sellingBandwidth = 0;
+    // Airtel cost: only circuits with a cost on record, so missing costs don't drag it down.
+    let providerCostTotal = 0;
+    let providerCostBandwidth = 0;
+    let providerCostMrcTotal = 0;
+    let providerCostCircuits = 0;
+    // Airtel bill for this month, reduced like revenue for connections terminating this month.
+    let providerCostThisMonth = 0;
+
+    liveConnections.forEach((conn) => {
+      const { bandwidth, mrc, providerCostMrc } = getTrueCommercials(conn, newRules);
+      if (bandwidth <= 0) return;
+
+      if (mrc > 0) {
+        sellingMrcTotal += mrc;
+        sellingBandwidth += bandwidth;
+      }
+
+      if (providerCostMrc > 0) {
+        providerCostTotal += providerCostMrc;
+        providerCostBandwidth += bandwidth;
+        providerCostMrcTotal += mrc;
+        providerCostCircuits += 1;
+        providerCostThisMonth += providerCostMrc * getMonthShare(conn, now);
+      }
+    });
+
+    const sellingRatePerMb = sellingBandwidth > 0 ? sellingMrcTotal / sellingBandwidth : 0;
+    const costPerMb = providerCostBandwidth > 0 ? providerCostTotal / providerCostBandwidth : 0;
+    // Margin compares like with like: selling rate on the same circuits that have a cost.
+    const matchedSellingRate = providerCostBandwidth > 0 ? providerCostMrcTotal / providerCostBandwidth : 0;
+    const marginPerMb = providerCostBandwidth > 0 ? matchedSellingRate - costPerMb : 0;
 
     return {
       customers: { total: activeCustomers, active: activeCustomers, inactive: inactiveCustomers, ...typeCounts },
       connections: { total: connections.length, active: activeConns, pending: pendingConns, notice: noticeConns, churned: churnedConns },
-      revenue: { totalLiveRevenue, totalBandwidth }
+      revenue: {
+        totalLiveRevenue,
+        totalBandwidth,
+        sellingRatePerMb,
+        costPerMb,
+        marginPerMb,
+        providerCostThisMonth,
+        costCoverage: { circuits: providerCostCircuits, total: liveConnections.length },
+      }
     };
-  }, [allData, pmData, isProjectManager]);
+  }, [allData, pmData, isProjectManager, newRules]);
 
   let cancelled = false;
 
@@ -197,6 +276,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
   const geoAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections || !allData?.customers) return [];
     const stateRevenue = {};
+    const now = new Date();
     const customersById = new Map(allData.customers.map((c) => [String(c._id), c]));
 
     allData.connections
@@ -209,17 +289,17 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
 
         if (rawState) {
           const state = rawState.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-          const { mrc, ipsCost } = getTrueCommercials(conn);
-          stateRevenue[state] = (stateRevenue[state] || 0) + mrc + ipsCost;
+          stateRevenue[state] = (stateRevenue[state] || 0) + getMonthRevenue(conn, now, newRules);
         }
       });
 
     return Object.keys(stateRevenue).map(key => ({ state: key, revenue: stateRevenue[key] })).sort((a, b) => b.revenue - a.revenue);
-  }, [allData, isProjectManager]);
+  }, [allData, isProjectManager, newRules]);
 
   const whaleAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections) return [];
     const customerTotals = {};
+    const now = new Date();
     const customersById = new Map((allData.customers || []).map((c) => [String(c._id), c]));
 
     allData.connections
@@ -227,8 +307,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
       .filter(isConnectionTrulyLive)
       .forEach(conn => {
         const custName = conn.customer?.name || 'Unknown Customer';
-        const { mrc, ipsCost } = getTrueCommercials(conn);
-        const circuitRevenue = mrc + ipsCost;
+        const circuitRevenue = getMonthRevenue(conn, now, newRules);
 
         if (!customerTotals[custName]) customerTotals[custName] = { name: custName, totalRevenue: 0, circuitCount: 0 };
         customerTotals[custName].totalRevenue += circuitRevenue;
@@ -236,7 +315,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
       });
 
     return Object.values(customerTotals).sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 5);
-  }, [allData, isProjectManager]);
+  }, [allData, isProjectManager, newRules]);
 
   const atRiskAnalytics = useMemo(() => {
     const allConnections = isProjectManager ? pmData : (allData?.connections || []);
@@ -246,7 +325,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     let totalRiskMRR = 0;
 
     const mappedConnections = noticeConnections.map(conn => {
-      const { mrc, ipsCost, bandwidth } = getTrueCommercials(conn);
+      const { mrc, ipsCost, bandwidth } = getTrueCommercials(conn, newRules);
       const revenue = mrc + ipsCost;
       totalRiskMRR += revenue;
 
@@ -260,7 +339,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     }).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
 
     return { connections: mappedConnections, totalRiskMRR };
-  }, [allData, pmData, isProjectManager]);
+  }, [allData, pmData, isProjectManager, newRules]);
 
 // const churnAnalytics = useMemo(() => {
 //   const allConnections = isProjectManager ? pmData : (allData?.connections || []);
@@ -362,7 +441,7 @@ const churnAnalytics = useMemo(() => {
     Number(h.commercials?.mrc || 0) + Number(h.ips?.cost || 0);
 
   connections.forEach((conn) => {
-    const { mrc, ipsCost } = getTrueCommercials(conn);
+    const { mrc, ipsCost } = getTrueCommercials(conn, newRules);
     const currentTrueRevenue = mrc + ipsCost; // used for churn
 
     let seenFirstActivation = false;
@@ -409,12 +488,13 @@ const churnAnalytics = useMemo(() => {
   return Array.from(monthlyData.values())
     .sort((a, b) => a.rawDate - b.rawDate)
     .filter((r) => r.Revenue !== 0 || r.ChurnMRR !== 0 || r.Activated !== 0 || r.Churned !== 0);
-}, [allData, pmData, isProjectManager]);
+}, [allData, pmData, isProjectManager, newRules]);
 
   const productAnalytics = useMemo(() => {
     if (isProjectManager || !allData?.connections) return [];
 
     const productTotals = {};
+    const now = new Date();
     const customersById = new Map((allData.customers || []).map((c) => [String(c._id), c]));
 
     allData.connections
@@ -422,8 +502,7 @@ const churnAnalytics = useMemo(() => {
       .filter(isConnectionTrulyLive)
       .forEach(conn => {
         const serviceType = conn.serviceType || 'Unspecified';
-        const { mrc, ipsCost } = getTrueCommercials(conn);
-        const revenue = mrc + ipsCost;
+        const revenue = getMonthRevenue(conn, now, newRules);
 
         if (!productTotals[serviceType]) {
           productTotals[serviceType] = 0;
@@ -443,7 +522,7 @@ const churnAnalytics = useMemo(() => {
     }
 
     return sortedData;
-  }, [allData, isProjectManager]);
+  }, [allData, isProjectManager, newRules]);
 
   // Bandwidth "sold" events (used to drive the Sales vs Target chart) — one
   // entry per connection at its first ACTIVATED date, tagged with the
@@ -463,7 +542,7 @@ const churnAnalytics = useMemo(() => {
       const date = new Date(conn.createdAt);
       if (isNaN(date.getTime())) return;
 
-      const { bandwidth } = getTrueCommercials(conn);
+      const { bandwidth } = getTrueCommercials(conn, newRules);
       if (!bandwidth) return;
 
       const createdBy = conn.createdBy;
@@ -489,7 +568,7 @@ const churnAnalytics = useMemo(() => {
     }
 
     return { events, employees };
-  }, [allData, pmData, isProjectManager, user]);
+  }, [allData, pmData, isProjectManager, user, newRules]);
 
   return {
     summary,

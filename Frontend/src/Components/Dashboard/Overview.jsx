@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../Context/AuthContext";
 import { useConnection } from "../../Context/ConnectionContext";
 import { useDashboard } from "../../Context/DashboardContext";
@@ -7,6 +7,7 @@ import EmployeeDashboard from "./EmployeeDashboard";
 import FlowNav from "./FlowNav";
 import RevenueBanner from "./RevenueBanner";
 import { useDashboardAnalytics } from "../ReportsDashboard/useDashboardAnalytics";
+import { excludeTestData } from "../ReportsDashboard/drishtiData";
 import DashboardHeader from "../Navigation/DashboardHeader";
 
 const ACCENT = "#6c5ce7";
@@ -32,12 +33,19 @@ function Overview() {
     const isAdmin = user?.role === 'admin';
     const isEmployee = user?.role === 'employee';
     const isRestrictedRole = user?.role === 'owner' || user?.role === 'order_generation';
+    // Admins see Avg Revenue per Mbps on the banner, computed exactly as in Drishti
+    // (test account excluded, admin rules on). Other roles are unchanged.
+    const analyticsData = useMemo(() => (isAdmin ? excludeTestData(allData, user) : allData), [allData, user, isAdmin]);
     const {
+      summary,
       growthAnalytics, 
+      loading: revenueLoading,
       fetchOverview, 
-    } = useDashboardAnalytics({ allData, pmData, isProjectManager});
+    } = useDashboardAnalytics({ allData: analyticsData, pmData, isProjectManager, adminRules: isAdmin });
+    const revenuePerMb = isAdmin && summary ? summary.revenue?.sellingRatePerMb ?? null : null;
       useEffect(() => {
-        if (isProjectManager || isAdmin) {
+        // Only project managers use this report; admins never read it, so they skip the request.
+        if (isProjectManager) {
           const fetchPMData = async () => {
             setPmLoading(true);
             try {
@@ -74,7 +82,7 @@ function Overview() {
         <SearchBar />
       </div> */}
       <DashboardHeader/>
-     {(isEmployee||isAdmin)&& <RevenueBanner revenue={growthAnalytics}/>}
+     {(isEmployee||isAdmin)&& <RevenueBanner revenue={growthAnalytics} revenuePerMb={revenuePerMb} pending={revenueLoading} storageKey={`fab5.revenueBanner.${user?.email || "me"}`}/>}
 
       {privileged && <FlowNav />}
 

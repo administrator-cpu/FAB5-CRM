@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FileSpreadsheet, Activity, Users, Download, Lock, EyeOff, IndianRupee, Wifi, CheckCircle2, Clock, AlertCircle, XCircle, Building2, Globe, Briefcase, Landmark } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../Context/AuthContext';
@@ -20,6 +20,7 @@ import KPISummaryStrip from '../Components/ReportsDashboard/KPISummaryStrip';
 import AlertsRiskCenter from '../Components/ReportsDashboard/AlertsRiskCenter';
 import { useSalesAchievement } from '../Components/ReportsDashboard/useSalesAchievement';
 import { useDashboard } from '../Context/DashboardContext';
+import { excludeTestData, excludeTestPmData } from '../Components/ReportsDashboard/drishtiData';
 
 const ReportsDashboard = () => {
   const { allData, user, loading } = useAuth();
@@ -35,6 +36,12 @@ const ReportsDashboard = () => {
   const isEmployee = user?.role === 'employee';
   const isRestrictedRole = user?.role === 'owner' || user?.role === 'order_generation';
 
+  // Drishti updates are admin-only for now: admins get the test-account filter, the
+  // pending-change and Notice Period rules, and the per-Mbps figures. Everyone else
+  // sees Drishti and the Master Report exactly as before.
+  const drishtiData = useMemo(() => (isAdmin ? excludeTestData(allData, user) : allData), [allData, user, isAdmin]);
+  const drishtiPmData = useMemo(() => (isAdmin ? excludeTestPmData(pmData) : pmData), [pmData, isAdmin]);
+
   // 1. Destructure the new fetchOverview and overview state from your hook
   const { 
     summary, 
@@ -47,14 +54,15 @@ const ReportsDashboard = () => {
     salesTargetAnalytics,
     fetchOverview, 
     overview 
-  } = useDashboardAnalytics({ allData, pmData, isProjectManager, timeRange });
+  } = useDashboardAnalytics({ allData: drishtiData, pmData: drishtiPmData, isProjectManager, timeRange, adminRules: isAdmin });
 
   const salesAchievement = useSalesAchievement(salesTargetAnalytics.events, salesTargetAnalytics.employees);
 
   // console.log(overview)
 
   useEffect(() => {
-    if (isProjectManager || isAdmin) {
+    // Only project managers use this report; admins never read it, so they skip the request.
+    if (isProjectManager) {
       const fetchPMData = async () => {
         setPmLoading(true);
         try {
@@ -82,8 +90,8 @@ const ReportsDashboard = () => {
       const { generateRoleBasedReport } = await import('../Services/ReportExportService');
       await new Promise((resolve) => setTimeout(resolve, 50));
       generateRoleBasedReport(
-        isProjectManager ? [] : (allData?.customers || []),
-        isProjectManager ? (pmData || []) : (allData?.connections || []),
+        isProjectManager ? [] : (drishtiData?.customers || []),
+        isProjectManager ? (drishtiPmData || []) : (drishtiData?.connections || []),
         user?.role
       );
       toast.success("Report Downloaded Successfully!", { id: tid });
@@ -149,6 +157,40 @@ const ReportsDashboard = () => {
                 <div className="text-3xl font-black text-blue-50">{summary.revenue.totalBandwidth.toLocaleString('en-IN')} <span className="text-lg text-slate-400">Mbps</span></div>
               </div>
             </div>
+
+            {isAdmin && (
+              <div className="grid grid-cols-2 gap-6 relative z-10 mt-6 pt-5 border-t border-slate-700">
+                <div>
+                  <div className="text-slate-400 text-sm font-medium">Avg Revenue per Mbps</div>
+                  <div className="text-xl font-black text-emerald-50">
+                    {formatCurrency(Math.round(summary.revenue.sellingRatePerMb || 0))}
+                    <span className="text-sm text-slate-400 font-semibold"> / Mbps</span>
+                  </div>
+                </div>
+                {isAdmin && (
+                  <div>
+                    <div className="text-slate-400 text-sm font-medium">Airtel Cost</div>
+                    {summary.revenue.costCoverage?.circuits > 0 ? (
+                      <>
+                        <div className="text-xl font-black text-amber-50">
+                          {formatCurrency(Math.round(summary.revenue.costPerMb))}
+                          <span className="text-sm text-slate-400 font-semibold"> / Mbps</span>
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          Margin {formatCurrency(Math.round(summary.revenue.marginPerMb))}/Mbps ·{' '}
+                          {summary.revenue.costCoverage.circuits} of {summary.revenue.costCoverage.total} circuits
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          Airtel bill this month {formatCurrency(Math.round(summary.revenue.providerCostThisMonth || 0))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-xl font-black text-slate-500">—<div className="text-xs font-normal mt-1">No provider cost entered</div></div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
