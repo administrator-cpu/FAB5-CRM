@@ -1294,10 +1294,12 @@ const getProjectManagerReport = asyncHandler(async (req, res, next) => {
   const connections = await Connection.find({})
     .select(
       // Added 'history' to the selection string
-      "opportunityId fabCircuitId telecoCircuitId status serviceType bandwidth technicalDetails acceptanceDate createdAt terminationDetails customer createdBy history"
+      "opportunityId fabCircuitId telecoCircuitId status serviceType bandwidth technicalDetails acceptanceDate createdAt terminationDetails customer createdBy " +
+      // Only the history fields mapped below; skips each entry's full snapshot. Response shape is unchanged.
+      "history.action history.date history.bandwidth history.performedBy history.note"
     )
     .populate("customer", "name")
-    .populate("createdBy", "name")
+    .populate("createdBy", "name email")
     // Optional: Populate the user who performed the history action so you get their name instead of just an ID
     .populate("history.performedBy", "name")
     .lean();
@@ -1306,6 +1308,8 @@ const getProjectManagerReport = asyncHandler(async (req, res, next) => {
     _id: conn._id,
     customerName: conn.customer?.name || "Unknown Customer",
     salesManager: conn.createdBy?.name || "Unknown Manager",
+    // Lets Drishti hide test-account rows; additive, existing fields are unchanged.
+    createdByEmail: conn.createdBy?.email || null,
     telecoCircuitId: conn.telecoCircuitId || "N/A",
     fabCircuitId: conn.fabCircuitId || "N/A",
     opportunityId: conn.opportunityId || "N/A",

@@ -7,18 +7,24 @@ const ROLES = require("../constants/roles");
 // summary and the history fields used for revenue (action, date, bandwidth, commercials, ips).
 // history.note is kept: the master Excel export reads it for the "Old Bandwidth" column.
 // Documents and the rest of each history snapshot are fetched per connection when it's opened.
-const CONNECTION_LIST_FIELDS = [
+const CONNECTION_LIST_EXCLUDES = [
   "-generatedDocuments", "-rmacdForms", "-purchaseOrders", "-purchaseOrder", "-caf", "-businessAgreement",
   "-history.performedBy", "-history.technicalDetails", "-history.providerCost",
   "-history.terminationDetails",
-].join(" ");
+];
+const CONNECTION_LIST_FIELDS = CONNECTION_LIST_EXCLUDES.join(" ");
+// Admins also get history.providerCost: Drishti uses the Airtel cost saved with the last
+// activated state while an upgrade/downgrade is pending. Other roles never receive it.
+const ADMIN_CONNECTION_LIST_FIELDS = CONNECTION_LIST_EXCLUDES
+  .filter((field) => field !== "-history.providerCost")
+  .join(" ");
 const CUSTOMER_SUMMARY_FIELDS = "name isActive";
 const USER_SUMMARY_FIELDS = "name email role";
 const USER_LIST_FIELDS = "name email phone dob role isActive isProfileComplete createdAt updatedAt";
 
-const listConnections = (filter) =>
+const listConnections = (filter, fields = CONNECTION_LIST_FIELDS) =>
   Connection.find(filter)
-    .select(CONNECTION_LIST_FIELDS)
+    .select(fields)
     .populate("customer", CUSTOMER_SUMMARY_FIELDS)
     .populate("createdBy", USER_SUMMARY_FIELDS)
     .lean();
@@ -37,7 +43,7 @@ const getAllUserData = async (currentUser) => {
     const [users, customers, connections] = await Promise.all([
       User.find().select(USER_LIST_FIELDS).lean(),
       Customer.find({ isActive: true }).populate("managedBy", USER_SUMMARY_FIELDS).lean(),
-      listConnections({ status: { $ne: "Deleted" } }),
+      listConnections({ status: { $ne: "Deleted" } }, ADMIN_CONNECTION_LIST_FIELDS),
     ]);
     return { users, connections, customers };
   }
