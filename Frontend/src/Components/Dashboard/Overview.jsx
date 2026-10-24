@@ -43,7 +43,8 @@ function Overview() {
     } = useDashboardAnalytics({ allData: analyticsData, pmData, isProjectManager, adminRules: isAdmin });
     const revenuePerMb = isAdmin && summary ? summary.revenue?.sellingRatePerMb ?? null : null;
       useEffect(() => {
-        if (isProjectManager || isAdmin) {
+        // Only project managers use this report; admins never read it, so they skip the request.
+        if (isProjectManager) {
           const fetchPMData = async () => {
             setPmLoading(true);
             try {

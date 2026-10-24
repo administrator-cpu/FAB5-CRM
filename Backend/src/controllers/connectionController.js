@@ -1294,7 +1294,9 @@ const getProjectManagerReport = asyncHandler(async (req, res, next) => {
   const connections = await Connection.find({})
     .select(
       // Added 'history' to the selection string
-      "opportunityId fabCircuitId telecoCircuitId status serviceType bandwidth technicalDetails acceptanceDate createdAt terminationDetails customer createdBy history"
+      "opportunityId fabCircuitId telecoCircuitId status serviceType bandwidth technicalDetails acceptanceDate createdAt terminationDetails customer createdBy " +
+      // Only the history fields mapped below; skips each entry's full snapshot. Response shape is unchanged.
+      "history.action history.date history.bandwidth history.performedBy history.note"
     )
     .populate("customer", "name")
     .populate("createdBy", "name email")
