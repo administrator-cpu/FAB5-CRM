@@ -104,7 +104,8 @@ const normName = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const EXCLUDED_SERVICE_TYPES = new Set(PER_MB_EXCLUDED_SERVICE_TYPES.map(normName));
 const EXCLUDED_CUSTOMERS = new Set(PER_MB_EXCLUDED_CUSTOMERS.map(normName));
 
-export const PER_MB_EXCLUSION_NOTE = `Excludes ${PER_MB_EXCLUDED_SERVICE_TYPES.join(', ')} circuits and ${PER_MB_EXCLUDED_CUSTOMERS.join(', ')}.`;
+// Shown on screen. The excluded customers are still left out, just not named here.
+export const PER_MB_EXCLUSION_NOTE = `Excludes ${PER_MB_EXCLUDED_SERVICE_TYPES.join(', ')} circuits.`;
 
 /**
  * True when a connection is left out of the per-Mbps figures.
