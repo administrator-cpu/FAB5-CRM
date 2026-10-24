@@ -1,6 +1,19 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useDashboard } from "../../Context/DashboardContext";
 import { Link } from "react-router-dom";
+import { useCountUp } from "./useCountUp";
+
+// Used for the loading count-up on a first visit, before any revenue has been seen.
+const FIRST_VISIT_PLACEHOLDER = 1e7;
+
+const readCached = (key) => {
+  try {
+    const v = Number(window.localStorage.getItem(key));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+};
 
 function formatINR(n) {
   if (n === undefined || n === null) return { value: "0", unit: "" };
@@ -11,7 +24,10 @@ function formatINR(n) {
 }
 
 // revenuePerMb: admin-only figure (live MRC ÷ live Mbps); null hides it.
-function RevenueBanner({ revenue, revenuePerMb = null }) {
+// pending: the revenue request is still in flight (drives the loading count-up).
+// storageKey: where the last seen revenue is remembered, so the count-up heads
+// toward a realistic figure while loading.
+function RevenueBanner({ revenue, revenuePerMb = null, pending = false, storageKey = "fab5.revenueBanner.last" }) {
   const { loadingMetrics } = useDashboard();
   const rows = Array.isArray(revenue?.data) ? revenue.data : [];
 
@@ -36,11 +52,24 @@ function RevenueBanner({ revenue, revenuePerMb = null }) {
     };
   }, [rows]);
 
-  const loading = loadingMetrics || total === null;
-  const { value, unit } = formatINR(total);
+  const waiting = loadingMetrics || pending;
+  const noData = !waiting && total === null;
   const negative = delta !== null && delta < 0;
 
-    console.log(revenue)
+  const [cached] = useState(() => readCached(storageKey));
+  useEffect(() => {
+    if (waiting || total === null) return;
+    try {
+      window.localStorage.setItem(storageKey, String(total));
+    } catch { /* storage unavailable: count-up just uses the first-visit placeholder */ }
+  }, [waiting, total, storageKey]);
+
+  const animatedTotal = useCountUp(waiting ? null : total, {
+    pending: waiting,
+    placeholder: cached || FIRST_VISIT_PLACEHOLDER,
+  });
+  const animatedRpm = useCountUp(revenuePerMb);
+  const { value, unit } = formatINR(animatedTotal);
 
 
   return (
@@ -93,7 +122,17 @@ function RevenueBanner({ revenue, revenuePerMb = null }) {
           )}
         </div>
 
-        <div style={{ marginTop: 8, display: "flex", alignItems: "baseline", gap: 2 }}>
+        <div
+          style={{
+            marginTop: 8,
+            display: "flex",
+            alignItems: "baseline",
+            gap: 2,
+            opacity: waiting ? 0.55 : 1,
+            transition: "opacity .4s ease",
+          }}
+          aria-busy={waiting}
+        >
           <span
             style={{
               fontSize: 40,
@@ -104,9 +143,9 @@ function RevenueBanner({ revenue, revenuePerMb = null }) {
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            {loading ? "—" : `₹${value}`}
+            {noData ? "—" : `₹${value}`}
           </span>
-          {!loading && unit && (
+          {!noData && unit && (
             <span style={{ marginLeft: 6, fontSize: 15, fontWeight: 600, letterSpacing: ".06em", color: "#8b929e" }}>
               {unit}
             </span>
@@ -130,7 +169,7 @@ function RevenueBanner({ revenue, revenuePerMb = null }) {
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              ₹{Math.round(revenuePerMb).toLocaleString("en-IN")}
+              ₹{Math.round(animatedRpm).toLocaleString("en-IN")}
             </span>
             <span style={{ marginLeft: 6, fontSize: 13, fontWeight: 600, color: "#8b929e" }}>/ Mbps</span>
           </div>

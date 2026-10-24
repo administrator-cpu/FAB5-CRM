@@ -39,6 +39,7 @@ function Overview() {
     const {
       summary,
       growthAnalytics, 
+      loading: revenueLoading,
       fetchOverview, 
     } = useDashboardAnalytics({ allData: analyticsData, pmData, isProjectManager, adminRules: isAdmin });
     const revenuePerMb = isAdmin && summary ? summary.revenue?.sellingRatePerMb ?? null : null;
@@ -81,7 +82,7 @@ function Overview() {
         <SearchBar />
       </div> */}
       <DashboardHeader/>
-     {(isEmployee||isAdmin)&& <RevenueBanner revenue={growthAnalytics} revenuePerMb={revenuePerMb}/>}
+     {(isEmployee||isAdmin)&& <RevenueBanner revenue={growthAnalytics} revenuePerMb={revenuePerMb} pending={revenueLoading} storageKey={`fab5.revenueBanner.${user?.email || "me"}`}/>}
 
       {privileged && <FlowNav />}
 
