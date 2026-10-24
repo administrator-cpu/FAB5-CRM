@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Gauge } from 'lucide-react';
 import { formatCurrency, formatBandwidth } from '../../Utils/formatters';
+import { PER_MB_EXCLUSION_NOTE } from '../drishtiData';
 
 const SORTS = [
   { key: 'revenuePerMb', label: 'Revenue / Mbps' },
@@ -123,7 +124,7 @@ const EmployeeRateTable = ({ data = [], companyAvg = 0 }) => {
             </tbody>
           </table>
           <p className="px-2 pt-3 text-xs text-slate-400">
-            Dark line marks the company average. Circuits priced at ₹0 are left out of the rate; margin uses only circuits with an Airtel cost entered.
+            {PER_MB_EXCLUSION_NOTE} Dark line marks the company average. Circuits priced at ₹0 are left out of the rate; margin uses only circuits with an Airtel cost entered.
           </p>
         </div>
       )}

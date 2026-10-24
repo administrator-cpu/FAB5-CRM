@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import api from './api';
 import { useAuth } from '../../Context/AuthContext';
-import { getMonthShare } from './drishtiData';
+import { getMonthShare, isExcludedFromPerMb } from './drishtiData';
 
 const TERMINAL_STATUSES = ['Disconnected'];
 
@@ -72,6 +72,8 @@ const getTrueCommercials = (conn, newRules = false) => {
   const providerCostMrc = hasPendingChange
     ? Number(lastConfirmed?.providerCost?.mrc || 0)
     : Number(conn.providerCost?.mrc || 0);
+  // A pending change can switch the service type; until it is activated use the old one.
+  const serviceType = hasPendingChange ? (lastConfirmed?.serviceType || conn.serviceType) : conn.serviceType;
 
   if (lastConfirmed) {
     return {
@@ -79,6 +81,7 @@ const getTrueCommercials = (conn, newRules = false) => {
       ipsCost: Number(lastConfirmed.ips?.cost || 0),
       bandwidth: Number(lastConfirmed.bandwidth || 0),
       providerCostMrc,
+      serviceType,
     };
   }
 
@@ -87,6 +90,7 @@ const getTrueCommercials = (conn, newRules = false) => {
     ipsCost: Number(conn.ips?.cost || 0),
     bandwidth: Number(conn.bandwidth || 0),
     providerCostMrc,
+    serviceType,
   };
 };
 
@@ -170,9 +174,18 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
     // Airtel bill for this month, reduced like revenue for connections terminating this month.
     let providerCostThisMonth = 0;
 
+    let perMbCircuits = 0;
+
     liveConnections.forEach((conn) => {
-      const { bandwidth, mrc, providerCostMrc } = getTrueCommercials(conn, newRules);
+      const { bandwidth, mrc, providerCostMrc, serviceType } = getTrueCommercials(conn, newRules);
+
+      // The Airtel bill is a real total, so it keeps every circuit.
+      if (providerCostMrc > 0) providerCostThisMonth += providerCostMrc * getMonthShare(conn, now);
+
       if (bandwidth <= 0) return;
+      // ILL and the excluded customer are left out of all per-Mbps figures (see drishtiData.js).
+      if (isExcludedFromPerMb(conn, serviceType, customersById)) return;
+      perMbCircuits += 1;
 
       if (mrc > 0) {
         sellingMrcTotal += mrc;
@@ -184,7 +197,6 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
         providerCostBandwidth += bandwidth;
         providerCostMrcTotal += mrc;
         providerCostCircuits += 1;
-        providerCostThisMonth += providerCostMrc * getMonthShare(conn, now);
       }
     });
 
@@ -204,7 +216,7 @@ export const useDashboardAnalytics = ({ allData, pmData, isProjectManager, timeR
         costPerMb,
         marginPerMb,
         providerCostThisMonth,
-        costCoverage: { circuits: providerCostCircuits, total: liveConnections.length },
+        costCoverage: { circuits: providerCostCircuits, total: perMbCircuits },
       }
     };
   }, [allData, pmData, isProjectManager, newRules]);
@@ -586,8 +598,9 @@ const churnAnalytics = useMemo(() => {
       .filter((c) => isCountableConnection(c, customersById))
       .filter(isConnectionTrulyLive)
       .forEach((conn) => {
-        const { bandwidth, mrc, providerCostMrc } = getTrueCommercials(conn, newRules);
+        const { bandwidth, mrc, providerCostMrc, serviceType } = getTrueCommercials(conn, newRules);
         if (bandwidth <= 0) return;
+        if (isExcludedFromPerMb(conn, serviceType, customersById)) return;
 
         const ref = conn.createdBy;
         const id = ref?._id ? String(ref._id) : (ref ? String(ref) : 'unassigned');

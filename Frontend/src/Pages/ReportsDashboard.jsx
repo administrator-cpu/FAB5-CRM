@@ -21,7 +21,7 @@ import KPISummaryStrip from '../Components/ReportsDashboard/KPISummaryStrip';
 import AlertsRiskCenter from '../Components/ReportsDashboard/AlertsRiskCenter';
 import { useSalesAchievement } from '../Components/ReportsDashboard/useSalesAchievement';
 import { useDashboard } from '../Context/DashboardContext';
-import { excludeTestData, excludeTestPmData } from '../Components/ReportsDashboard/drishtiData';
+import { excludeTestData, excludeTestPmData, PER_MB_EXCLUSION_NOTE } from '../Components/ReportsDashboard/drishtiData';
 
 const ReportsDashboard = () => {
   const { allData, user, loading } = useAuth();
@@ -168,6 +168,7 @@ const ReportsDashboard = () => {
                     {formatCurrency(Math.round(summary.revenue.sellingRatePerMb || 0))}
                     <span className="text-sm text-slate-400 font-semibold"> / Mbps</span>
                   </div>
+                  <div className="text-xs text-slate-400 mt-1">{PER_MB_EXCLUSION_NOTE}</div>
                 </div>
                 {isAdmin && (
                   <div>

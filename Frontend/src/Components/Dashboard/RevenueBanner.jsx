@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useDashboard } from "../../Context/DashboardContext";
 import { Link } from "react-router-dom";
 import { useCountUp } from "./useCountUp";
+import { PER_MB_EXCLUSION_NOTE } from "../ReportsDashboard/drishtiData";
 
 // Used for the loading count-up on a first visit, before any revenue has been seen.
 const FIRST_VISIT_PLACEHOLDER = 1e7;
@@ -154,7 +155,7 @@ function RevenueBanner({ revenue, revenuePerMb = null, pending = false, storageK
       </div>
 
       {revenuePerMb !== null && (
-        <div style={{ minWidth: 0, paddingLeft: 28, borderLeft: "1px solid #ffffff1a" }}>
+        <div style={{ minWidth: 0, paddingLeft: 28, borderLeft: "1px solid #ffffff1a" }} title={PER_MB_EXCLUSION_NOTE}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9aa1ad", letterSpacing: ".01em", whiteSpace: "nowrap" }}>
             Avg Revenue per Mbps
           </span>
