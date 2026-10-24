@@ -174,6 +174,7 @@ function RevenueBanner({ revenue, revenuePerMb = null, revenuePerMbLabel = "Avg 
             </span>
             <span style={{ marginLeft: 6, fontSize: 13, fontWeight: 600, color: "#8b929e" }}>/ Mbps</span>
           </div>
+          <div style={{ marginTop: 6, fontSize: 11, color: "#6f7681", whiteSpace: "nowrap" }}>{PER_MB_EXCLUSION_NOTE}</div>
         </div>
       )}
       </div>
