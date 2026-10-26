@@ -2,8 +2,6 @@ import React, {
   createContext,
   use,
   useCallback,
-  useContext,
-  useEffect,
   useMemo,
   useState,
 } from "react";

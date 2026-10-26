@@ -20,7 +20,6 @@ import SalesVsTargetChart from '../Components/ReportsDashboard/Charts/SalesVsTar
 import KPISummaryStrip from '../Components/ReportsDashboard/KPISummaryStrip';
 import AlertsRiskCenter from '../Components/ReportsDashboard/AlertsRiskCenter';
 import { useSalesAchievement } from '../Components/ReportsDashboard/useSalesAchievement';
-import { useDashboard } from '../Context/DashboardContext';
 import { excludeTestData, excludeTestPmData, PER_MB_EXCLUSION_NOTE } from '../Components/ReportsDashboard/drishtiData';
 
 const ReportsDashboard = () => {

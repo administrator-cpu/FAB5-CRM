@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const { app, server, io } = require("./src/app");
+const { server, io } = require("./src/app");
 const connectDB = require("./src/config/db");
 const { startReminderJob, startAutoTerminationJob, startRateRevisionJob } = require("./src/services/cronService")
 const { shutDownRedis } = require("./src/config/cache");

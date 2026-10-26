@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { LayoutDashboard } from 'lucide-react';
 import CollectionVsOutstandingChart from './Charts/CollectionVsOutstandingChart';
 import AgingAnalysisChart from './Charts/AgingAnalysisChart';
 import CollectionEfficiencyGauge from './Charts/CollectionEfficiencyGauge';
 import TopDefaultersChart from './Charts/TopDefaultersChart';
 import WeeklyCollectionsChart from './Charts/WeeklyCollectionsChart';
-import api from './api';
 import { useDashboardAnalytics } from './useDashboardAnalytics';
 
 const CollectionsOverview = () => {

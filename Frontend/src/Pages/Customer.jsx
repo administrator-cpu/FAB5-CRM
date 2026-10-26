@@ -1,12 +1,11 @@
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect } from "react";
 import Loading from "../Components/Utils/Loading";
 import CustomerNavBar from "../Components/Navigation/CustomerNavBar";
 import { Outlet, useParams } from "react-router-dom";
 import { useCustomer } from "../Context/CustomerContext";
-import CustomerCardSecond from "../Components/Dashboard/CustomerCardSecond";
 
 function Customer() {
-  const { customerInformation, getCustomerById } = useCustomer();
+  const { getCustomerById } = useCustomer();
   const { id } = useParams();
   
   useEffect(() => {

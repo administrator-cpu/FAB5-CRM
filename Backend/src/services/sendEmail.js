@@ -1,14 +1,5 @@
-// const emailjs = require("@emailjs/nodejs"); // OLD IMPORT
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
-
-/* OLD EMAILJS CONFIG */
-/* const EMAIL_CONFIG = {
-  serviceId: process.env.EMAILJS_SERVICE_ID,
-  templateId: process.env.EMAILJS_TEMPLATE_ID,
-  publicKey: process.env.EMAILJS_PUBLIC_KEY,
-  privateKey: process.env.EMAILJS_PRIVATE_KEY,
-}; */
 
 const RESEND_API_KEY = process.env.RESEND_SERVICE_API_KEY;
 if (!RESEND_API_KEY) {
@@ -17,19 +8,6 @@ if (!RESEND_API_KEY) {
 
 const COMPANY_NAME = process.env.COMPANY_NAME || "FAB5 Network";
 const CRM_EMAIL = process.env.CRM_EMAIL;
-const BILLING_EMAIL = process.env.BILLING_EMAIL;
-const PROJECT_EMAIL = process.env.PROJECT_EMAIL;
-const PERSON_EMAIL = process.env.PERSON_EMAIL;
-
-/* const missingKeys = Object.entries(EMAIL_CONFIG)
-  .filter(([, value]) => !value)
-  .map(([key]) => key);
-
-if (missingKeys.length > 0) {
-  throw new Error(
-    `EmailJS config missing: ${missingKeys.join(", ")} are required`
-  );
-} */
 
 const buildCC = (...emails) => emails.filter(Boolean);
 
@@ -105,26 +83,6 @@ const sendViaEmailJS = async (subject, htmlContent, to, cc, bcc) => {
     to: toEmail,
     subject,
   });
-
-  /* OLD EMAILJS EXECUTION */
-  /* const templateParams = {
-    subject,
-    html_content: htmlContent,
-    to_email: normalizeEmail(to),
-    cc_email: normalizeEmail(cc),
-    bcc_email: normalizeEmail(bcc),
-    current_year: new Date().getFullYear(),
-  };
-
-  await emailjs.send(
-    EMAIL_CONFIG.serviceId,
-    EMAIL_CONFIG.templateId,
-    templateParams,
-    {
-      publicKey: EMAIL_CONFIG.publicKey,
-      privateKey: EMAIL_CONFIG.privateKey,
-    }
-  ); */
 
   try {
     const fullHtml = buildHtmlTemplate(htmlContent);

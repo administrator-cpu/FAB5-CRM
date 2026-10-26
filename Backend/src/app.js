@@ -9,7 +9,6 @@ const helmet = require("helmet");
 const crypto = require("crypto");
 const http = require("http");
 
-const { globalLimiter } = require("./middlewares/rateLimiter");
 const logger = require("./utils/logger");
 const AppError = require("./utils/AppError");
 const { UPLOAD_DIR, FILES_ROUTE } = require("./config/storage");

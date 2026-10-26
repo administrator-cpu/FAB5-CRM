@@ -4,7 +4,7 @@ import { useCustomer } from "../Context/CustomerContext";
 import { Link, useNavigate } from "react-router-dom";
 import { SlArrowLeft } from "react-icons/sl";
 import toast from "react-hot-toast";
-import { X, User, FileText, MapPin, PlusCircle, Trash2 } from "lucide-react";
+import { User, FileText, MapPin, PlusCircle, Trash2 } from "lucide-react";
 import { INDIAN_STATES } from "../Components/Utils/States";
 
 const info = { label: "Primary Billing", gstNumber: "", address: { street: "", pincode: "", city: "", state: "" } }

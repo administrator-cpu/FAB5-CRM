@@ -1,6 +1,5 @@
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
-const logger = require("../utils/logger");
 const Connection = require("../models/connectionModel");
 const Customer = require("../models/customerModel");
 const ROLES = require("../constants/roles");

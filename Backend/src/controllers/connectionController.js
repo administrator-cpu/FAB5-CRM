@@ -312,7 +312,6 @@ const approveConnection = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const lastAction = connection.history[connection.history.length - 1]?.action;
   if (requestType === "RATE_REVISION") {
     if (!connection.scheduledRateRevision) {
       return next(new AppError("Scheduled rate revision data is missing from this connection.", 400));
@@ -559,8 +558,6 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const processedOpportunityIds = connections.map(c => c.opportunityId);
-
   if (baseIsIpAddition) {
     for (const connection of connections) {
       connection.status = "Generation";
@@ -606,7 +603,7 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
   const excelUpload = await uploadDocument({ buffer: excelBuffer }, "crm/company_pos", { ext: ".xlsx" });
   const pdfUpload = await uploadDocument({ buffer: pdfBuffer }, "crm/company_pos", { ext: ".pdf" });
 
-  const companyPoRecord = await CompanyPO.create({
+  await CompanyPO.create({
     poNumber: poNumber,
     financialYear: financialYear,
     connections: validIds,

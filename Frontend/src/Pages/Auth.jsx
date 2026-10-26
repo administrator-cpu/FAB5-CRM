@@ -1,8 +1,6 @@
 import { Suspense } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import Loading from "../Components/Utils/Loading";
-import {InputUnit} from "../Components/Utils/InputUnit";
-import { MdCheckBoxOutlineBlank } from "react-icons/md";
 
 function Auth() {
   const location = useLocation();
