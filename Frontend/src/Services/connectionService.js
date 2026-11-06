@@ -115,6 +115,12 @@ export const ConnectionService = {
     });
     return data;
   },
+  sendForEsign: async (id, payload) => {
+    const { data } = await api.post(`/connection/${id}/esign`, payload, {
+      withCredentials: true,
+    });
+    return data;
+  },
   putConnection: async (id, payload) => {
     const { data } = await api.put(`/connection/${id}/edit`, payload, {
       withCredentials: true,

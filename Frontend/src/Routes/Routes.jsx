@@ -46,8 +46,6 @@ export const router = createBrowserRouter(
           <Route index element={<CustomerSumDetails />} />
           <Route path="create" element={<CreateConnection />} />
           <Route path="bulk" element={<BulkConnectionUpload />} />
-          {/* <Route path="create/ip" element={<CreateIpOrder />} />
-          <Route path="create/ill" element={<CreateIllOrder />} /> */}
           <Route path="connection/:cid/manage" element={<ManageOrder />} />
           <Route path="connection/:cid/history" element={<HistoryCard />} />
           <Route path="connection/:cid/edit" element={<EditRegectedConnection />} />

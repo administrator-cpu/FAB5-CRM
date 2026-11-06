@@ -10,6 +10,7 @@ import {
 import toast from "react-hot-toast";
 import authService from "../Services/authService";
 import { handleRequest } from "../Services/handleRequest";
+import { consumeExpiredFlag, expireSession, msUntilTokenExpiry } from "../Services/session";
 
 const AuthContext = createContext(null);
 
@@ -91,6 +92,24 @@ const fetchUserProfile = useCallback(async () => {
   useEffect(() => {
     fetchUserProfile();
   }, [fetchUserProfile]);
+
+  // Coming back to the login page after the session expired: say why.
+  useEffect(() => {
+    if (consumeExpiredFlag()) toast.error("Your session has expired. Please log in again.", { id: "session-expired" });
+  }, []);
+
+  // Log out when the login token expires, even if the app is left open without making requests.
+  useEffect(() => {
+    if (!user) return undefined;
+    const ms = msUntilTokenExpiry();
+    if (ms === null) return undefined;
+    if (ms <= 0) {
+      expireSession();
+      return undefined;
+    }
+    const timer = setTimeout(expireSession, Math.min(ms, 2147483647));
+    return () => clearTimeout(timer);
+  }, [user]);
 
   const sendRegistrationOtp = useCallback(async (email, password) => {
     return await handleRequest(

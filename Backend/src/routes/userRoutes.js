@@ -1,8 +1,7 @@
 const express = require("express");
 const { sendRegistrationOtp, verifyOtpAndRegister, loginUser, requestReset, verifyResetOtp, resetPassword, getUserProfile, updateUserProfile, logoutUser, getAllUser} = require("../controllers/userController");
-const { protect, authorize, domainCheck } = require("../middlewares/authMiddleware");
+const { protect, domainCheck } = require("../middlewares/authMiddleware");
 const { authLimiter } = require("../middlewares/rateLimiter");
-const ROLES = require("../constants/roles");
 const router = express.Router();
 
 /* 

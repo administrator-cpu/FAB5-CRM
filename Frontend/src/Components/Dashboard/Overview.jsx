@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../Context/AuthContext";
 import { useConnection } from "../../Context/ConnectionContext";
 import { useDashboard } from "../../Context/DashboardContext";
-import SearchBar from "../Navigation/SearchBar";
 import EmployeeDashboard from "./EmployeeDashboard";
 import FlowNav from "./FlowNav";
 import RevenueBanner from "./RevenueBanner";
@@ -82,9 +81,6 @@ function Overview() {
         flex:1
       }}
     >
-      {/* <div style={{ display: "flex" }}>
-        <SearchBar />
-      </div> */}
       <DashboardHeader/>
      {(isEmployee||isAdmin)&& <RevenueBanner revenue={growthAnalytics} revenuePerMb={revenuePerMb} pending={revenueLoading} revenuePerMbLabel={isEmployee ? "Your Avg Revenue per Mbps" : "Avg Revenue per Mbps"} storageKey={`fab5.revenueBanner.${user?.email || "me"}`}/>}
 

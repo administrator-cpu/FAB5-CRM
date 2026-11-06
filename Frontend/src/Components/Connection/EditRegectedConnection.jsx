@@ -2,7 +2,6 @@ import React, { useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { useConnection } from '../../Context/ConnectionContext'
 import EditIpConnection from './EditIpConnection'
-import EditIllConnection from './EditIllConnection'
 import EditServiceConnection from './EditServiceConnection'
 
 function EditRegectedConnection() {

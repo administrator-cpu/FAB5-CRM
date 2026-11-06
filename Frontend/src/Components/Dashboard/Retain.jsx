@@ -1,7 +1,5 @@
 import React from 'react'
-import { SlArrowLeft } from 'react-icons/sl'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { PiRepeatThin } from "react-icons/pi";
 import { PiRepeatFill } from "react-icons/pi";
 import { useCustomer } from '../../Context/CustomerContext';
 
@@ -17,7 +15,6 @@ function Retain({info}) {
 
   return (
     <section className='h-full w-full flex justify-center mt-[10vh] relative items-center'>
-      {/* <Link to={`/customer/${id}`} className={` absolute top-2 left-2 flex justify-center gap-2  items-center`}> <div className="p-2 rounded-full border"><SlArrowLeft/> </div>Back</Link> */}
       <div className="  rounded-lg  md:w-[40%] border shadow-[#98ff9850] shadow-xl border-[#88888818] p-4 flex flex-col gap-3 items-start">
        <h3 className='p-3  rounded-lg text-xl text-green-600 bg-[#c8ffcb38]'><PiRepeatFill/></h3>
        <div className="">

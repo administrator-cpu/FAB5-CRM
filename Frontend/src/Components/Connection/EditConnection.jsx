@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { InputUnitFlow } from "../Utils/InputUnit";
 import { useConnection } from "../../Context/ConnectionContext";
 import { useParams } from "react-router-dom";
@@ -46,16 +46,6 @@ function EditConnection({ info }) {
       remarks: "",
     });
   }
-
-  // useEffect(() => {
-  //   setData({
-  //     serviceType: info?.serviceType || "",
-  //     bandwidth: info?.bandwidth || "",
-  //     ratePerMb: info?.commercials?.ratePerMb || "",
-  //     remarks: "",
-  //   });
-  //   setPoFile(null);
-  // }, [info]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;

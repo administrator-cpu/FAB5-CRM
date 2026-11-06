@@ -1,5 +1,4 @@
 const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
 const AppError = require("../utils/AppError")
 const User = require("../models/userModel");
 const logger = require("../utils/logger")
@@ -38,6 +37,11 @@ const protect = async (req, res, next) => {
     if (!user.isActive) {
       return next(new AppError("Account disabled", 403));
     }
+    // Tokens issued before the last password reset / change are no longer valid.
+    // (Tokens from before tokenVersion existed carry no `tv` and count as version 0.)
+    if ((decoded.tv || 0) !== (user.tokenVersion || 0)) {
+      return res.status(401).json({ message: "Session expired, please log in again" });
+    }
 
     req.user = user;
     next();
@@ -60,18 +64,20 @@ const authorize = (...roles) => {
 const domainCheck = (req, res, next) => {
   
   const { email } = req.body;
-  if (!email) {
+  if (!email || typeof email !== "string") {
     return next(new AppError("Email is required", 400));
   }
 
-  const allowedDomain = process.env.ALLOWED_EMAIL_DOMAIN;
+  // Fails closed: without the setting, anyone could sign up and get employee access.
+  const allowedDomain = process.env.ALLOWED_EMAIL_DOMAIN?.trim().toLowerCase();
   if (!allowedDomain) {
-    logger.warn("ALLOWED_EMAIL_DOMAIN not set in environment — domain check skipped");
-    return next();
+    logger.error("ALLOWED_EMAIL_DOMAIN not set in environment — self-registration is refused");
+    return next(new AppError("Registration is currently unavailable. Please contact your administrator.", 503));
   }
 
-  const emailDomain = email.split("@")[1]?.toLowerCase();
-  if (emailDomain !== allowedDomain.toLowerCase()) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailDomain = normalizedEmail.includes("@") ? normalizedEmail.split("@").pop() : "";
+  if (emailDomain !== allowedDomain) {
     return next(new AppError("Only company email addresses are allowed", 400));
   }
   next();

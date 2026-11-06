@@ -7,7 +7,6 @@ import React, {
   useState,
   useRef,
 } from "react";
-import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 import dashboardService from "../Services/dashboard.service";
 import { useAuth } from "./AuthContext";

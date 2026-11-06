@@ -9,6 +9,7 @@ const { uploadDocument } = require("../services/upload.service");
 const { createGeneratedCaf } = require("../services/caf.service");
 const { createGeneratedPo } = require("../services/po.service");
 const { createGeneratedRmacd } = require("../services/rmacd.service");
+const ehastakshar = require("../services/ehastakshar.service");
 const { buildIps, expectedMrc } = require("../utils/ipCost");
 const { hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments } = require("../utils/signedDocuments");
 const generateOpportunityId = require("../services/opportunityId.service");
@@ -20,6 +21,7 @@ const logger = require("../utils/logger");
 const ROLES = require("../constants/roles");
 const ioHelper = require("../utils/ioHelper.js");
 const { STORAGE_DRIVERS, resolveLocalPath } = require("../config/storage");
+const { canAccessConnection, withoutProviderCost } = require("../utils/access");
 
 const buildSnapshot = (connection) => ({
   serviceType: connection.serviceType,
@@ -40,6 +42,9 @@ const getRequestType = (historyArray) => {
 };
 
 const RMACD_REQUEST_TYPES = ["UPGRADE", "DOWNGRADE", "SHIFTING"];
+
+// Cancelled and deleted connections no longer hold their Telco Circuit ID, so it can be reused.
+const CIRCUIT_ID_RELEASED_STATUSES = ["Cancelled", "Deleted"];
 const REQUEST_ACTIONS = ["CREATED", "UPGRADE", "DOWNGRADE", "SHIFTING", "RATE_REVISION", "IP_ADDITION"];
 
 // The connection's current request entry and its RMACD form. form is null for request types without an
@@ -221,7 +226,7 @@ const connectionByCustomer = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     success: true,
     count: connections.length,
-    connections,
+    connections: connections.map((connection) => withoutProviderCost(req.user, connection)),
   });
 });
 
@@ -236,8 +241,11 @@ const getConnectionById = asyncHandler(async (req, res, next) => {
     .populate("history.performedBy", "name email role");
 
   if (!connection) return next(new AppError("Connection not found", 404));
+  if (!(await canAccessConnection(req.user, connection))) {
+    return next(new AppError("You can only view your own customers' connections", 403));
+  }
 
-  res.status(200).json({ success: true, connection });
+  res.status(200).json({ success: true, connection: withoutProviderCost(req.user, connection) });
 });
 
 const getConnectionsByStatus = asyncHandler(async (req, res, next) => {
@@ -312,7 +320,6 @@ const approveConnection = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const lastAction = connection.history[connection.history.length - 1]?.action;
   if (requestType === "RATE_REVISION") {
     if (!connection.scheduledRateRevision) {
       return next(new AppError("Scheduled rate revision data is missing from this connection.", 400));
@@ -386,9 +393,16 @@ const rejectConnection = asyncHandler(async (req, res, next) => {
   const connection = await Connection.findById(req.params.id);
   if (!connection) return next(new AppError("Connection not found", 404));
 
-  const nonRejectableStatuses = ["Active", "Notice Period", "Disconnected", "Rejected"];
+  const nonRejectableStatuses = ["Active", "Notice Period", "Disconnected", "Rejected", "Cancelled", "Deleted"];
   if (nonRejectableStatuses.includes(connection.status)) {
     return next(new AppError(`Cannot reject a connection with status: ${connection.status}`, 400));
+  }
+
+  // Order Generation and Project Managers can only reject orders at their own stage.
+  const stageByRole = { [ROLES.ORDER_GENERATION]: "Approved", [ROLES.PROJECT_MANAGER]: "Generation" };
+  const allowedStage = stageByRole[req.user.role];
+  if (allowedStage && connection.status !== allowedStage) {
+    return next(new AppError(`You can only reject connections in ${allowedStage} status`, 403));
   }
 
   connection.status = "Rejected";
@@ -559,8 +573,6 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const processedOpportunityIds = connections.map(c => c.opportunityId);
-
   if (baseIsIpAddition) {
     for (const connection of connections) {
       connection.status = "Generation";
@@ -606,7 +618,7 @@ const markAsGeneration = asyncHandler(async (req, res, next) => {
   const excelUpload = await uploadDocument({ buffer: excelBuffer }, "crm/company_pos", { ext: ".xlsx" });
   const pdfUpload = await uploadDocument({ buffer: pdfBuffer }, "crm/company_pos", { ext: ".pdf" });
 
-  const companyPoRecord = await CompanyPO.create({
+  await CompanyPO.create({
     poNumber: poNumber,
     financialYear: financialYear,
     connections: validIds,
@@ -670,7 +682,8 @@ const activateConnection = asyncHandler(async (req, res, next) => {
   const existingDuplicate = await Connection.findOne({
     telecoCircuitId: telecoCircuitId.trim(),
     "technicalDetails.telcoProvider": provider,
-    _id: { $ne: connection._id }
+    _id: { $ne: connection._id },
+    status: { $nin: CIRCUIT_ID_RELEASED_STATUSES },
   });
 
   if (existingDuplicate) {
@@ -887,6 +900,20 @@ const editRejectedConnection = asyncHandler(async (req, res, next) => {
       return next(new AppError("You can only edit your own customers' connections", 403));
     }
   }
+
+  // A pending order stays editable only until the customer signs it; editing after that would
+  // get values approved that differ from the signed documents. Pending changes to a live
+  // connection (upgrade, rate revision, IP addition, …) carry their own request and aren't edited here.
+  if (connection.status === "Pending") {
+    const { entry } = currentRmacdForm(connection);
+    const requestType = entry?.action || "CREATED";
+    if (requestType !== "CREATED") {
+      return next(new AppError(`This connection has a pending ${requestType.replace("_", " ").toLowerCase()} request. Ask an approver to reject it, then edit and resubmit.`, 400));
+    }
+    if (hasSignedDocuments(connection)) {
+      return next(new AppError("The signed CAF and PO are already uploaded. Ask an approver to reject the order, then edit it and upload newly signed copies.", 400));
+    }
+  }
   const previousStatus = connection.status;
   if (serviceType) connection.serviceType = serviceType;
   if (bandwidth) connection.bandwidth = bandwidth;
@@ -957,7 +984,7 @@ const editRemark = asyncHandler(async (req, res, next) => {
     return next(new AppError(`Remarks can only be edited when the connection is in Pending state. Current status is ${connection.status}`, 400));
   }
 
-  if (req.user.role !== "Admin" && connection.createdBy.toString() !== req.user._id.toString()) {
+  if (req.user.role !== ROLES.ADMIN && connection.createdBy.toString() !== req.user._id.toString()) {
     return next(new AppError("You do not have permission to edit this connection's remarks", 403));
   }
 
@@ -994,7 +1021,7 @@ const cancelConnection = asyncHandler(async (req, res, next) => {
     return next(new AppError(`Already Cancelled`, 400));
   }
 
-  if (connection.status === "Active" || connection.status === "Disconnected" || connection.status === "Notice Period") {
+  if (["Active", "Disconnected", "Notice Period", "Deleted"].includes(connection.status)) {
     return next(new AppError(`Cannot cancel a connection with status: ${connection.status}`, 400));
   }
 
@@ -1205,7 +1232,7 @@ const addIp = asyncHandler(async (req, res, next) => {
     return next(new AppError("Can only add IPs to Active connections", 400));
   }
 
-  if (req.user.role === "Employee") { // Adjust ROLES.EMPLOYEE if needed
+  if (req.user.role === ROLES.EMPLOYEE) {
     const customer = await Customer.findById(connection.customer);
     if (!customer?.managedBy.equals(req.user._id)) {
       return next(new AppError("You can only modify your own customers' connections", 403));
@@ -1217,6 +1244,12 @@ const addIp = asyncHandler(async (req, res, next) => {
 
   const addedCount = Number(count);
   const addedCost = Number(cost);
+  if (!Number.isInteger(addedCount) || addedCount < 1) {
+    return next(new AppError("Number of IPs must be a whole number of at least 1", 400));
+  }
+  if (!Number.isFinite(addedCost) || addedCost < 0) {
+    return next(new AppError("IP cost must be zero or more", 400));
+  }
 
   const newTotalCount = currentIpCount + addedCount;
   const newTotalCost = currentIpCost + addedCost;
@@ -1454,6 +1487,7 @@ const updateTelcoCircuitId = asyncHandler(async (req, res, next) => {
     telecoCircuitId: newId,
     "technicalDetails.telcoProvider": provider,
     _id: { $ne: connection._id },
+    status: { $nin: CIRCUIT_ID_RELEASED_STATUSES },
   });
   if (existingDuplicate) {
     return next(new AppError(`Telecom Circuit ID "${newId}" is already in use by another ${provider || "Unknown Provider"} connection (Opportunity: ${existingDuplicate.opportunityId}).`, 400));
@@ -1633,9 +1667,12 @@ const downloadDocument = asyncHandler(async (req, res, next) => {
   const { opportunityId, docType } = req.params;
   const { field } = req.query;
 
-  const connection = await Connection.findOne({ opportunityId });
-  if (!connection) {
-    return res.status(404).json({ message: "Connection not found" });
+  // One message for every miss, so the response never reveals which opportunity ids exist.
+  const notFound = () => res.status(404).json({ message: "Document not found." });
+
+  const connection = await Connection.findOne({ opportunityId: String(opportunityId) });
+  if (!connection || !(await canAccessConnection(req.user, connection))) {
+    return notFound();
   }
 
   let document = null;
@@ -1649,16 +1686,16 @@ const downloadDocument = asyncHandler(async (req, res, next) => {
     downloadName = `Business_Agreement_${opportunityId}`;
   } else if (docType === "po") {
     if (!connection.purchaseOrders || connection.purchaseOrders.length === 0) {
-      return res.status(404).json({ message: "Document not found." });
+      return notFound();
     }
     let targetPO;
     if (field) {
-      targetPO = connection.purchaseOrders.id(field);
+      targetPO = mongoose.isValidObjectId(field) ? connection.purchaseOrders.id(field) : null;
     } else {
       targetPO = connection.purchaseOrders[connection.purchaseOrders.length - 1];
     }
     if (!targetPO) {
-      return res.status(404).json({ message: "Requested Document not found." });
+      return notFound();
     }
     document = targetPO;
     const requestTypeLabel = targetPO.requestType || "Doc";
@@ -1668,7 +1705,7 @@ const downloadDocument = asyncHandler(async (req, res, next) => {
   }
 
   if (!document?.url) {
-    return res.status(404).json({ message: "This document has not been uploaded yet." });
+    return notFound();
   }
 
   if (document.storage === STORAGE_DRIVERS.LOCAL) {
@@ -1783,7 +1820,8 @@ const checkDuplicateTelcoCircuitIds = asyncHandler(async (req, res, next) => {
   const duplicates = await Connection.aggregate([
     {
       $match: {
-        telecoCircuitId: { $nin: [null, "", undefined] }
+        telecoCircuitId: { $nin: [null, "", undefined] },
+        status: { $nin: CIRCUIT_ID_RELEASED_STATUSES },
       }
     },
     {
@@ -1923,6 +1961,132 @@ const uploadSignedDocuments = asyncHandler(async (req, res, next) => {
   });
 });
 
+const ESIGN_MAX_SIGNERS = ehastakshar.MAX_SIGNERS;
+
+// Sends the generated (unsigned) CAF and/or PO of a new order to e-Hastakshar, which emails the
+// signers a signing link one after another, in the order given. Already-signed documents are skipped. The signed copy is still uploaded by hand
+// (uploadSignedDocuments) until e-Hastakshar can notify us and let us download it.
+const sendForEsign = asyncHandler(async (req, res, next) => {
+  if (!ehastakshar.isConfigured()) {
+    return next(new AppError("eSign is not set up yet (EHASTAKSHAR_API_KEY is missing)", 503));
+  }
+
+  const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
+  if (!connection) return next(new AppError("Connection not found", 404));
+
+  const customer = await Customer.findById(connection.customer);
+  if (req.user.role === ROLES.EMPLOYEE && !customer?.managedBy.equals(req.user._id)) {
+    return next(new AppError("You can only send documents for your own customers", 403));
+  }
+
+  if (connection.bulkBatch) {
+    return next(new AppError("eSign isn't available for bulk-upload connections yet", 400));
+  }
+  if (getRequestType(connection.history) !== "CREATED") {
+    return next(new AppError("eSign is only available for new orders for now", 400));
+  }
+  if (areSignedDocumentsLocked(connection)) {
+    return next(new AppError("Signed documents can no longer be changed once the order has been approved", 400));
+  }
+
+  // Signers in signing order: e-Hastakshar emails signer 2 only after signer 1 has signed, and so on.
+  const rawSigners = Array.isArray(req.body.signers) ? req.body.signers : [];
+  if (rawSigners.length === 0) return next(new AppError("Add at least one signer", 400));
+  if (rawSigners.length > ESIGN_MAX_SIGNERS) {
+    return next(new AppError(`You can add up to ${ESIGN_MAX_SIGNERS} signers`, 400));
+  }
+  const signers = rawSigners.map((signer) => ({
+    name: String(signer?.name || "").trim(),
+    email: String(signer?.email || "").trim().toLowerCase(),
+  }));
+  for (const [index, signer] of signers.entries()) {
+    if (!signer.name || signer.name.length > 100) {
+      return next(new AppError(`Enter signer ${index + 1}'s name (up to 100 characters)`, 400));
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(signer.email)) {
+      return next(new AppError(`Enter a valid email for signer ${index + 1}`, 400));
+    }
+  }
+  if (new Set(signers.map((signer) => signer.email)).size !== signers.length) {
+    return next(new AppError("Each signer needs a different email", 400));
+  }
+  const signerSummary = signers.map((signer, index) => `${index + 1}. ${signer.name} (${signer.email})`).join(", ");
+
+  const signed = {
+    CAF: Boolean(connection.caf?.url),
+    PO: connection.purchaseOrders.some((po) => po.requestType === "CREATED" && po.url),
+  };
+  const requested = Array.isArray(req.body.documents) ? req.body.documents : ["CAF", "PO"];
+  const documents = ["CAF", "PO"].filter((docType) =>
+    requested.includes(docType) && !signed[docType] && connection.generatedDocuments?.[docType.toLowerCase()]?.url);
+  if (documents.length === 0) {
+    return next(new AppError("There is no unsigned CAF or PO to send", 400));
+  }
+
+  // Sent one at a time; if a later one fails, the ones already sent are still saved.
+  const sent = [];
+  let failure = null;
+  for (const docType of documents) {
+    const generated = connection.generatedDocuments[docType.toLowerCase()];
+    try {
+      const pdf = await ehastakshar.readStoredDocument(generated);
+      const result = await ehastakshar.sendForSigning({
+        pdf,
+        fileName: generated.fileName || `${docType}_${connection.opportunityId}.pdf`,
+        title: `${docType} - ${customer?.name || ""} - ${connection.opportunityId}`,
+        docType,
+        signers,
+        layout: generated,
+      });
+      connection.esignRequests.push({
+        docType,
+        documentId: result.documentId,
+        transactionId: result.transactionId,
+        signers: signers.map((signer, index) => ({
+          order: index + 1,
+          // Matched by email in case e-Hastakshar returns them in another order.
+          signerId: result.signers?.find((s) => String(s.email).toLowerCase() === signer.email)?.id,
+          ...signer,
+        })),
+        status: result.status || "PENDING",
+        expiresAt: result.expiresAt ? new Date(result.expiresAt) : undefined,
+        sentBy: req.user._id,
+        sentAt: new Date(),
+      });
+      sent.push(docType);
+    } catch (error) {
+      logger.error("eSign send failed", { opportunityId: connection.opportunityId, docType, error: error.message });
+      failure = { docType, message: error.message };
+      break;
+    }
+  }
+
+  if (sent.length > 0) {
+    connection.history.push({
+      action: "ESIGN_SENT",
+      performedBy: req.user._id,
+      date: new Date(),
+      note: `${sent.join(" & ")} sent for eSign. Signing order: ${signerSummary}`,
+    });
+    await connection.save();
+    ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: connection._id });
+    logger.info("Documents sent for eSign", { opportunityId: connection.opportunityId, documents: sent, by: req.user._id });
+  }
+
+  if (failure) {
+    const prefix = sent.length > 0 ? `${sent.join(" & ")} sent, but ` : "";
+    return next(new AppError(`${prefix}${failure.docType} could not be sent for eSign: ${failure.message}`, 502));
+  }
+
+  res.status(200).json({
+    success: true,
+    message: signers.length > 1
+      ? `${sent.join(" & ")} sent for eSign to ${signers.length} signers; ${signers[0].email} signs first`
+      : `${sent.join(" & ")} sent for eSign to ${signers[0].email}`,
+    esignRequests: connection.esignRequests,
+  });
+});
+
 // Upload the customer-signed RMACD for the connection's current upgrade / downgrade / shifting request.
 const uploadSignedRmacd = asyncHandler(async (req, res, next) => {
   const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
@@ -1987,6 +2151,7 @@ module.exports = {
   getIpStats,
   uploadSignedRmacd,
   uploadSignedDocuments,
+  sendForEsign,
   updateTopology,
   updateTelcoCircuitId,
   createConnection,

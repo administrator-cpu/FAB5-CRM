@@ -1,10 +1,13 @@
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
-const logger = require("../utils/logger");
 const Connection = require("../models/connectionModel");
 const Customer = require("../models/customerModel");
 const ROLES = require("../constants/roles");
-const User = require("../models/userModel"); 
+const User = require("../models/userModel");
+const { escapeRegex } = require("../utils/security");
+
+const MAX_SEARCH_LENGTH = 100;
+const SEARCH_TIME_LIMIT_MS = 5000;
 
 
 const getDashboardCustomers = asyncHandler(async (req, res, next) => {
@@ -226,12 +229,13 @@ const triggerRealtimeMetricsUpdate = async (affectedUserId = null) => {
 };
 
 const globalDashboardSearch = asyncHandler(async (req, res, next) => {
-  const query = req.query.q;
-  if (!query || !query.trim()) {
+  const query = String(req.query.q ?? "").trim().slice(0, MAX_SEARCH_LENGTH);
+  if (!query) {
     return res.status(200).json({ success: true, results: { connections: [], customers: [], users: [] } });
   }
 
-  const regex = new RegExp(query.trim(), "i");
+  // Searched as plain text: a raw pattern from the query string could tie up the database.
+  const regex = new RegExp(escapeRegex(query), "i");
   const isEmployee = req.user.role === ROLES.EMPLOYEE;
   const isAdminOrEmp = req.user.role === ROLES.ADMIN || isEmployee;
 
@@ -259,9 +263,10 @@ const globalDashboardSearch = asyncHandler(async (req, res, next) => {
         { "technicalDetails.telcoProvider": regex }
       ]
     })
-    .select("opportunityId serviceType status customer fabCircuitId telecoCircuitId technicalDetails remarks") 
+    .select("opportunityId serviceType status customer fabCircuitId telecoCircuitId technicalDetails remarks")
     .populate("customer", "name")
     .limit(10)
+    .maxTimeMS(SEARCH_TIME_LIMIT_MS)
     .lean(),
 
     isAdminOrEmp 
@@ -284,6 +289,7 @@ const globalDashboardSearch = asyncHandler(async (req, res, next) => {
         })
         .select("name email mobile person customerType billingProfile")
         .limit(10)
+        .maxTimeMS(SEARCH_TIME_LIMIT_MS)
         .lean()
       : Promise.resolve([]),
 
@@ -298,6 +304,7 @@ const globalDashboardSearch = asyncHandler(async (req, res, next) => {
         })
         .select("name role email phone")
         .limit(10)
+        .maxTimeMS(SEARCH_TIME_LIMIT_MS)
         .lean()
       : Promise.resolve([])
   ]);

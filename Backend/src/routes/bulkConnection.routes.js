@@ -50,7 +50,7 @@ router.post(
 router.post(
   "/bulk-commit",
   protect,updateDashboardMetricsPostResponse,
-  authorize(ROLES.ADMIN, ROLES.OWNER),
+  authorize(ROLES.ADMIN),
   commitActiveBulkConnections
 );
 

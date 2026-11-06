@@ -7,12 +7,12 @@ const {
 
 const { syncConnections, syncCustomers } = require("../controllers/ledgerlySync.controller");
 const { requireLedgerlyKey } = require("../middlewares/ledgerlyAuth.middleware");
+const { safeCompare } = require("../utils/security");
 
 const router = express.Router();
 
 const protectInternal = (req, res, next) => {
-  const apiKey = req.headers['x-api-key'];
-  if (apiKey && apiKey === process.env.INTERNAL_CRM_SECRET) {
+  if (safeCompare(req.headers['x-api-key'], process.env.INTERNAL_CRM_SECRET)) {
     return next();
   }
   return res.status(401).json({ status: 'fail', message: 'Unauthorized internal request' });

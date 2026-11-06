@@ -16,6 +16,7 @@ const emailQueue = require("../queue/email.queue");
 const ROLES = require('../constants/roles');
 const { buildIps, classifyIpCost } = require('../utils/ipCost');
 const { hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments } = require('../utils/signedDocuments');
+const { canAccessCustomer } = require('../utils/access');
 
 // Billing profile a bulk-created connection bills to: only unambiguous when the customer has exactly one.
 const singleBillingProfileId = (customer) =>
@@ -26,6 +27,73 @@ const withCreatedBy = async (connectionId) => {
   return await Connection
     .findById(connectionId)
     .populate("createdBy", "name email");
+};
+
+const MAX_BULK_ROWS = 100;
+const BULK_SERVICE_TYPES = ["ILL", "DNC", "Mix", "Peering"];
+const ACTIVE_SERVICE_TYPES = ["DNC", "Mix", "ILL", "Peering", "IP"]; // migrated (already active) connections
+const TELCO_PROVIDERS = ["Airtel", "TCL", "Vodafone", "Jio", "Other"];
+const trimIfString = (value) => (typeof value === "string" ? value.trim() : value);
+
+// Normalizes one bulk-upload row in place and returns its errors and the server-side MRC.
+// Used by the preview and again by the create step, which receives the rows back from the browser.
+const validateBulkRow = (row) => {
+  const errors = [];
+
+  const rawServiceType = String(row.serviceType || "").trim();
+  const matchedType = BULK_SERVICE_TYPES.find((type) => type.toLowerCase() === rawServiceType.toLowerCase());
+  const serviceType = matchedType || rawServiceType;
+  row.serviceType = serviceType;
+
+  const rawProvider = String(row.telcoProvider || "").trim();
+  const matchedProvider = TELCO_PROVIDERS.find((p) => p.toLowerCase() === rawProvider.toLowerCase());
+  row.telcoProvider = matchedProvider || rawProvider;
+
+  for (const key of ["AbtsId", "Aaddress", "Alatitude", "Alongitude", "BbtsId", "Baddress", "Blongitude", "Blatitude"]) {
+    row[key] = trimIfString(row[key]);
+  }
+
+  const bandwidth = Number(row.bandwidth || 0);
+  const ratePerMb = Number(row.ratePerMb || 0);
+  if (!ratePerMb || ratePerMb <= 0) errors.push("ratePerMb is required");
+  const ipCount = Number(row.ipCount || 0);
+  const ipCost = Number(row.ipCost || 0);
+  const mrc = Number(row.mrc || 0);
+
+  if (!serviceType) {
+    errors.push("serviceType is required");
+  } else if (!BULK_SERVICE_TYPES.includes(serviceType)) {
+    errors.push(`Invalid service type. Allowed: ${BULK_SERVICE_TYPES.join(', ')}`);
+  }
+
+  if (!row.telcoProvider) {
+    errors.push("TelcoProvider is required");
+  } else if (!matchedProvider) {
+    errors.push(`Invalid telcoProvider: '${rawProvider}'. Allowed: ${TELCO_PROVIDERS.join(', ')}`);
+  }
+
+  if (!bandwidth) errors.push("bandwidth is required");
+  else if (!(bandwidth > 0)) errors.push("bandwidth must be a positive number");
+  if (!(ipCount >= 0) || !(ipCost >= 0)) errors.push("IP count and IP cost cannot be negative");
+  if (!(Number(row.otc || 0) >= 0) || !(Number(row.advance || 0) >= 0)) errors.push("OTC and advance cannot be negative");
+  if (!row.AbtsId) errors.push("AbtsId is required");
+  if (!row.Aaddress) errors.push("Aaddress is required");
+  if (!row.Alatitude) errors.push("A latitude is required");
+  if (!row.Alongitude) errors.push("A longitude is required");
+
+  if (serviceType !== "ILL") {
+    if (!row.BbtsId) errors.push("BbtsId is required");
+    if (!row.Baddress) errors.push("Baddress is required");
+    if (!row.Blatitude) errors.push("B latitude is required");
+    if (!row.Blongitude) errors.push("B longitude is required");
+  }
+
+  const calculatedMrc = (ratePerMb * bandwidth) + (ipCount * ipCost);
+  if (Math.round(calculatedMrc) !== Math.round(mrc)) {
+    errors.push("MRC mismatch");
+  }
+
+  return { errors, calculatedMrc };
 };
 
 const downloadTemplate = async (req, res) => {
@@ -116,77 +184,18 @@ const uploadBulkConnections = asyncHandler(async (req, res, next) => {
     if (hasData) rows.push(rowData);
   });
 
-  if (rows.length > 100) {
+  if (rows.length > MAX_BULK_ROWS) {
     return res.status(400).json({
       success: false,
-      message: 'Maximum 100 rows allowed',
+      message: `Maximum ${MAX_BULK_ROWS} rows allowed`,
     });
   }
 
   const validRows = [];
   const invalidRows = [];
 
-  rows.forEach((row, index) => {
-
-    const errors = [];
-
-    const rawServiceType = String(row.serviceType || "").trim();
-    const allowedServiceTypes = ["ILL", "DNC", "Mix", "Peering"];
-    const matchedType = allowedServiceTypes.find((type) => type.toLowerCase() === rawServiceType.toLowerCase());
-    const serviceType = matchedType || rawServiceType;
-    row.serviceType = serviceType;
-
-    const rawProvider = String(row.telcoProvider || "").trim();
-    const allowedProviders = ["Airtel", "TCL", "Vodafone", "Jio", "Other"];
-    const matchedProvider = allowedProviders.find((p) => p.toLowerCase() === rawProvider.toLowerCase());
-    row.telcoProvider = matchedProvider || rawProvider;
-
-    row.AbtsId = typeof row.AbtsId === 'string' ? row.AbtsId.trim() : row.AbtsId;
-    row.Aaddress = typeof row.Aaddress === 'string' ? row.Aaddress.trim() : row.Aaddress;
-    row.Alatitude = typeof row.Alatitude === 'string' ? row.Alatitude.trim() : row.Alatitude;
-    row.Alongitude = typeof row.Alongitude === 'string' ? row.Alongitude.trim() : row.Alongitude;
-
-    row.BbtsId = typeof row.BbtsId === 'string' ? row.BbtsId.trim() : row.BbtsId;
-    row.Baddress = typeof row.Baddress === 'string' ? row.Baddress.trim() : row.Baddress;
-    row.Blongitude = typeof row.Blongitude === 'string' ? row.Blongitude.trim() : row.Blongitude;
-    row.Blatitude = typeof row.Blatitude === 'string' ? row.Blatitude.trim() : row.Blatitude;
-
-    const bandwidth = Number(row.bandwidth || 0);
-    const ratePerMb = Number(row.ratePerMb || 0);
-    if (!ratePerMb || ratePerMb <= 0) errors.push("ratePerMb is required");
-    const ipCount = Number(row.ipCount || 0);
-    const ipCost = Number(row.ipCost || 0);
-    const mrc = Number(row.mrc || 0);
-
-    if (!serviceType) {
-      errors.push("serviceType is required");
-    } else if (!allowedServiceTypes.includes(serviceType)) {
-      errors.push(`Invalid service type. Allowed: ${allowedServiceTypes.join(', ')}`);
-    }
-
-    if (!row.telcoProvider) {
-      errors.push("TelcoProvider is required");
-    } else if (!matchedProvider) {
-      errors.push(`Invalid telcoProvider: '${rawProvider}'. Allowed: ${allowedProviders.join(', ')}`);
-    }
-
-    if (!bandwidth) errors.push("bandwidth is required");
-    if (!row.AbtsId) errors.push("AbtsId is required");
-    if (!row.Aaddress) errors.push("Aaddress is required");
-    if (!row.Alatitude) errors.push("A latitude is required");
-    if (!row.Alongitude) errors.push("A longitude is required");
-
-    if (serviceType !== "ILL") {
-      if (!row.BbtsId) errors.push("BbtsId is required");
-      if (!row.Baddress) errors.push("Baddress is required");
-      if (!row.Blatitude) errors.push("B latitude is required");
-      if (!row.Blongitude) errors.push("B longitude is required");
-    }
-
-    const calculatedMrc = (ratePerMb * bandwidth) + (ipCount * ipCost);
-    if (Math.round(calculatedMrc) !== Math.round(mrc)) {
-      errors.push("MRC mismatch");
-    }
+  rows.forEach((row) => {
+    const { errors, calculatedMrc } = validateBulkRow(row);
 
     if (errors.length) {
       invalidRows.push({
@@ -247,8 +256,24 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
     return next(new AppError("Invalid connections data format", 400));
   }
 
-  if (!validRows || validRows.length === 0) {
+  if (!Array.isArray(validRows) || validRows.length === 0) {
     return next(new AppError("No valid connections to process", 400));
+  }
+  if (validRows.length > MAX_BULK_ROWS) {
+    return next(new AppError(`Maximum ${MAX_BULK_ROWS} rows allowed`, 400));
+  }
+
+  // The rows come back from the browser, so the preview's checks are repeated here and the
+  // MRC is always the server's own calculation.
+  const rowErrors = [];
+  validRows = validRows.map((row, index) => {
+    const normalized = row && typeof row === "object" && !Array.isArray(row) ? { ...row } : {};
+    const { errors, calculatedMrc } = validateBulkRow(normalized);
+    if (errors.length) rowErrors.push(`Row ${normalized.excelRowNumber || index + 1}: ${errors.join(", ")}`);
+    return { ...normalized, calculatedMrc };
+  });
+  if (rowErrors.length) {
+    return next(new AppError(`Some rows are invalid. ${rowErrors.slice(0, 5).join("; ")}`, 400));
   }
 
   const customer = await Customer.findById(customerId);
@@ -439,9 +464,6 @@ const createBulkConnections = asyncHandler(async (req, res, next) => {
 });
 
 // Employees may only see and change bulk batches of customers they manage.
-const canAccessCustomer = (user, customer) =>
-  user.role !== ROLES.EMPLOYEE || Boolean(customer?.managedBy?.equals(user._id));
-
 const BATCH_CONNECTION_FIELDS = "bulkBatch opportunityId serviceType bandwidth status caf purchaseOrders history.action";
 // Deleted and cancelled connections no longer need signed documents, so batches ignore them.
 const LIVE_BATCH_CONNECTION = { $nin: ["Deleted", "Cancelled"] };
@@ -775,14 +797,78 @@ const commitActiveBulkConnections = asyncHandler(async (req, res, next) => {
     return next(new AppError("Please provide an array of valid connection objects", 400));
   }
 
-  const connectionsWithIds = connections.map(conn => {
+  // The rows come back from the browser, so each connection is rebuilt from the preview's fields
+  // only: status and history are always set here, and ownership always follows the customer's manager.
+  const idsOf = (key) => [...new Set(connections.map((conn) => String(conn?.[key] || "")))].filter((id) => mongoose.isValidObjectId(id));
+  const [customers, activators] = await Promise.all([
+    Customer.find({ _id: { $in: idsOf("customer") } }).select("managedBy billingProfile._id").lean(),
+    User.find({ _id: { $in: idsOf("activatedBy") } }).select("_id").lean(),
+  ]);
+  const customerById = new Map(customers.map((c) => [String(c._id), c]));
+  const activatorIds = new Set(activators.map((u) => String(u._id)));
+
+  const text = (value) => (value === undefined || value === null ? undefined : String(value));
+  const amount = (value) => (value === undefined || value === null || value === "" ? 0 : Number(value));
+  const rowErrors = [];
+
+  const connectionsWithIds = connections.map((conn, index) => {
+    const label = `Row ${index + 1}`;
+    const customer = customerById.get(String(conn?.customer));
+    if (!customer) { rowErrors.push(`${label}: customer not found`); return null; }
+    if (!activatorIds.has(String(conn.activatedBy))) { rowErrors.push(`${label}: activated-by user not found`); return null; }
+    if (!ACTIVE_SERVICE_TYPES.includes(conn.serviceType)) { rowErrors.push(`${label}: invalid service type`); return null; }
+    const provider = conn.technicalDetails?.telcoProvider;
+    if (provider && !TELCO_PROVIDERS.includes(provider)) { rowErrors.push(`${label}: invalid telco provider`); return null; }
+
+    const commercials = {
+      mrc: amount(conn.commercials?.mrc),
+      ratePerMb: amount(conn.commercials?.ratePerMb),
+      otc: amount(conn.commercials?.otc),
+      advance: amount(conn.commercials?.advance),
+    };
+    if (Object.values(commercials).some((value) => !Number.isFinite(value) || value < 0)) {
+      rowErrors.push(`${label}: MRC, rate, OTC and advance must be zero or more`);
+      return null;
+    }
+
+    const billingProfileId = (customer.billingProfile || []).some((p) => String(p._id) === String(conn.billingProfileId))
+      ? conn.billingProfileId
+      : null;
+    const aEnd = conn.technicalDetails?.aEnd || {};
+    const bEnd = conn.technicalDetails?.bEnd || {};
     const oppId = generateOpportunityId();
     return {
-      ...conn,
       opportunityId: oppId,
-      fabCircuitId: oppId
+      fabCircuitId: oppId,
+      customer: customer._id,
+      billingProfileId,
+      createdBy: customer.managedBy,
+      activatedBy: conn.activatedBy,
+      serviceType: conn.serviceType,
+      bandwidth: text(conn.bandwidth),
+      telecoCircuitId: text(conn.telecoCircuitId),
+      technicalDetails: {
+        aEnd: { btsId: text(aEnd.btsId), address: text(aEnd.address) },
+        bEnd: { btsId: text(bEnd.btsId), address: text(bEnd.address) },
+        telcoProvider: provider || undefined,
+      },
+      commercials,
+      ips: buildIps({ count: conn.ips?.count, totalCost: conn.ips?.cost, perIpCost: conn.ips?.perIpCost || undefined }),
+      status: "Active",
+      acceptanceDate: new Date(),
+      history: [{
+        action: "ACTIVATED",
+        performedBy: customer.managedBy,
+        note: "Migrated via Bulk Admin Upload",
+        serviceType: conn.serviceType,
+        bandwidth: text(conn.bandwidth),
+      }],
     };
   });
+
+  if (rowErrors.length) {
+    return next(new AppError(`Some rows are invalid. ${rowErrors.slice(0, 5).join("; ")}`, 400));
+  }
 
   const insertedConnections = await Connection.insertMany(connectionsWithIds, { ordered: false });
 

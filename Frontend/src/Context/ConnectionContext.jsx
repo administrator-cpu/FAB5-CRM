@@ -2,8 +2,6 @@ import React, {
   createContext,
   use,
   useCallback,
-  useContext,
-  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -144,6 +142,17 @@ export const ConnectionProvider = ({ children }) => {
       return await handleRequest(
         () => ConnectionService.uploadSignedDocuments(id, payload),
         "Signed documents uploaded",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
+  const sendForEsign = useCallback(
+    async (id, payload) => {
+      return await handleRequest(
+        () => ConnectionService.sendForEsign(id, payload),
+        "Sent for eSign",
         () => getDashboardData(),
       );
     },
@@ -322,6 +331,7 @@ export const ConnectionProvider = ({ children }) => {
       setSingleConnectionData,
       approveConnection,
       uploadSignedDocuments,
+      sendForEsign,
       uploadSignedRmacd,
       updateTopology,
       updateTelcoCircuitId,
@@ -351,6 +361,7 @@ export const ConnectionProvider = ({ children }) => {
       singleConnectionData,
       approveConnection,
       uploadSignedDocuments,
+      sendForEsign,
       uploadSignedRmacd,
       updateTopology,
       updateTelcoCircuitId,

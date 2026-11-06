@@ -1,7 +1,6 @@
 import { LogOut } from 'lucide-react'
 import React, { useState } from 'react'
 import { useAuth } from '../../Context/AuthContext'
-import { Link } from 'react-router-dom'
 
 function Logout() {
     const [panal,setPanal]=useState(false)

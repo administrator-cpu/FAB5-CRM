@@ -7,8 +7,26 @@ const logger = require("../utils/logger");
 const { getRedis } = require("../config/cache");
 const { sendOTPEmail } = require("../services/sendEmail");
 const { getAllUserData } = require("../utils/userService");
+const { safeCompare } = require("../utils/security");
 // const { generateAccessToken, generateRefreshToken, hashToken } = require("../services/tokenService");
 const { cookieOptions } = require("../middlewares/authMiddleware");
+
+// Signs the 7-day login token and sets it as a cookie. `tv` ties the token to the user's
+// tokenVersion, so bumping tokenVersion (password reset / change) ends every older session.
+const issueToken = (res, user) => {
+  const token = jwt.sign(
+    {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      tv: user.tokenVersion || 0,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+  res.cookie("token", token, cookieOptions);
+  return token;
+};
 
 // ───────────────── Helper ───────────────── 
 const setRefreshTokenCookie = (res, token) => {
@@ -36,18 +54,38 @@ const safeUser = (user) => ({
 const redis = getRedis();
 // ─────────────────── OTP Helpers ────────────────────
 const OTP_EXPIRY_SECONDS = 600;
+const OTP_MAX_ATTEMPTS = 5; // wrong entries before the code is discarded and a new one is needed
+const OTP_SENDS_PER_HOUR = 5; // codes one address can be sent per hour
+
+const hashOtp = (otp) => crypto.createHash("sha256").update(String(otp)).digest("hex");
+
 const generateAndStoreOtp = async (key) => {
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
-  await redis.set(`otp:${key}`, hashedOtp, "EX", OTP_EXPIRY_SECONDS);
+  const otp = crypto.randomInt(100000, 1000000).toString();
+  await Promise.all([
+    redis.set(`otp:${key}`, hashOtp(otp), "EX", OTP_EXPIRY_SECONDS),
+    redis.del(`otp_attempts:${key}`),
+  ]);
   return otp;
 };
 const verifyStoredOtp = async (key, otp) => {
   const stored = await redis.get(`otp:${key}`);
   if (!stored) return false;
-  const hashedInput = crypto.createHash("sha256").update(otp).digest("hex");
-  return stored === hashedInput;
+  if (safeCompare(hashOtp(otp), stored)) {
+    await redis.del(`otp_attempts:${key}`);
+    return true;
+  }
+  const attempts = await redis.incr(`otp_attempts:${key}`);
+  if (attempts === 1) await redis.expire(`otp_attempts:${key}`, OTP_EXPIRY_SECONDS);
+  if (attempts >= OTP_MAX_ATTEMPTS) await redis.del(`otp:${key}`, `otp_attempts:${key}`);
+  return false;
 };
+// Counts codes sent to one address in the last hour; false once the cap is reached.
+const allowOtpSend = async (key) => {
+  const sends = await redis.incr(`otp_sends:${key}`);
+  if (sends === 1) await redis.expire(`otp_sends:${key}`, 60 * 60);
+  return sends <= OTP_SENDS_PER_HOUR;
+};
+const tooManyOtpSends = () => new AppError("Too many codes requested for this email. Please try again in an hour.", 429);
 
 /* 
 ════════════════════════════════════════════════════════════════════════════════
@@ -71,6 +109,7 @@ const sendRegistrationOtp = asyncHandler(async (req, res, next) => {
   if (existingUser) {
     return next(new AppError("An account already exists with this email", 409));
   }
+  if (!(await allowOtpSend(email))) return next(tooManyOtpSends());
 
   const otp = await generateAndStoreOtp(email);
   try {
@@ -124,17 +163,7 @@ const verifyOtpAndRegister = asyncHandler(async (req, res, next) => {
   // user.refreshToken = refreshToken;
   // user.refreshTokenExpire = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  const generateToken = jwt.sign(
-    {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: "7d" }
-  );
-
-  res.cookie("token", generateToken, cookieOptions);
+  const generateToken = issueToken(res, user);
 
   logger.info("User registered", { email, role: user.role });
 
@@ -170,17 +199,7 @@ const loginUser = asyncHandler(async (req, res, next) => {
     return next(new AppError("Your account has been deactivated. Contact your administrator.", 401));
   }
 
-  const generateToken = jwt.sign(
-    {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: "7d" }
-  );
-
-  res.cookie("token", generateToken, cookieOptions);
+  const generateToken = issueToken(res, user);
 
   logger.info("User logged in", { email, role: user.role });
 
@@ -254,6 +273,8 @@ const requestReset = asyncHandler(async (req, res, next) => {
   if (!email) {
     return next(new AppError("Email is required", 400));
   }
+  // Checked before the lookup, so the limit applies the same way to unknown addresses.
+  if (!(await allowOtpSend(`reset:${email}`))) return next(tooManyOtpSends());
 
   const user = await User.findOne({ email });
   if (!user) {
@@ -335,7 +356,8 @@ const resetPassword = asyncHandler(async (req, res, next) => {
   user.refreshToken = undefined;
   user.refreshTokenExpire = undefined;
 
-  user.passwordChangedAt = Date.now() - 1000;
+  // Ends every session that was logged in with the old password.
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
   await user.save();
 
   clearAuthCookies(res);
@@ -383,7 +405,7 @@ const getAllUser = asyncHandler(async (req, res, next) => {
 // PUT /api/users/me
 // Update user profile
 const updateUserProfile = asyncHandler(async (req, res, next) => {
-  const user = await User.findById(req.user.id);
+  const user = await User.findById(req.user.id).select("+password");
   if (!user) return next(new AppError("User not found", 404));
 
   const { name, dob, phone, adharNumber, panNumber } = req.body;
@@ -399,14 +421,23 @@ const updateUserProfile = asyncHandler(async (req, res, next) => {
   user.panNumber = panNumber || user.panNumber;
   user.isProfileComplete = true;
 
-  if (req.body.password) {
+  const changingPassword = Boolean(req.body.password);
+  if (changingPassword) {
     if (req.body.password.length < 8) {
       return next(new AppError("Password must be at least 8 characters", 400));
     }
+    // A logged-in session alone isn't enough to change the password.
+    if (!req.body.currentPassword || !(await user.matchPassword(String(req.body.currentPassword)))) {
+      return next(new AppError("Current password is incorrect", 400));
+    }
     user.password = req.body.password;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
   }
 
   await user.save({ validateModifiedOnly: true });
+
+  // Older sessions end with the password change; this one continues with a fresh token.
+  const token = changingPassword ? issueToken(res, user) : undefined;
 
   logger.info("User profile updated", { email: user.email });
 
@@ -414,6 +445,7 @@ const updateUserProfile = asyncHandler(async (req, res, next) => {
     success: true,
     message: "Profile updated successfully",
     user: safeUser(user),
+    ...(token && { token }),
     redirect: "/dashboard"
   });
 });

@@ -9,10 +9,10 @@ const helmet = require("helmet");
 const crypto = require("crypto");
 const http = require("http");
 
-const { globalLimiter } = require("./middlewares/rateLimiter");
 const logger = require("./utils/logger");
 const AppError = require("./utils/AppError");
 const { UPLOAD_DIR, FILES_ROUTE } = require("./config/storage");
+const { globalLimiter } = require("./middlewares/rateLimiter");
 
 const userRoutes = require("./routes/userRoutes");
 const customerRoutes = require("./routes/customerRoutes");
@@ -22,6 +22,7 @@ const integrationRoutes = require("./routes/integration.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const InternalRoutes = require("./routes/internalBi.routes");
 const salesTargetRoutes = require("./routes/salesTarget.routes");
+const esignWebhookRoutes = require("./routes/esignWebhook.routes");
 
 const app = express();
 const server = http.createServer(app);
@@ -84,10 +85,18 @@ app.options("*", cors());
 // Gzip JSON / HTML responses (API payloads shrink ~10x); already-compressed types like PDFs are skipped.
 app.use(compression());
 
-// ──────────────── Body Parsers and Cookie Parser ──────────────────────────────
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// ──────────────── Cookie Parser, Rate Limit and Body Parsers ──────────────────────────────
+// The limiter runs before the body parsers, so limited requests are refused before their body is read.
 app.use(cookieParser());
+app.use(globalLimiter);
+
+// Bodies are parsed before authentication, so they stay small; only the admin bulk imports,
+// which send whole spreadsheets as JSON, get a larger limit.
+const LARGE_JSON_PATHS = ["/api/customers/bulk-commit", "/api/bulk-connections/bulk-commit"];
+const jsonParser = express.json({ limit: "1mb" });
+const largeJsonParser = express.json({ limit: "10mb" });
+app.use((req, res, next) => (LARGE_JSON_PATHS.includes(req.path) ? largeJsonParser : jsonParser)(req, res, next));
+app.use(express.urlencoded({ limit: "1mb", extended: true }));
 app.use((req, res, next) => {
   req.requestId = crypto.randomUUID();
   res.setHeader("X-Request-ID", req.requestId);
@@ -146,6 +155,7 @@ app.use("/api/crm", integrationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/internal", InternalRoutes);
 app.use("/api/sales-targets", salesTargetRoutes);
+app.use("/api/esign", esignWebhookRoutes);
 
 // ──────────────── Health Check Endpoint ─────────────────────────────
 app.get("/health", (req, res) => {

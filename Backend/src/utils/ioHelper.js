@@ -12,7 +12,9 @@ module.exports = {
    */
   broadcastChange: (event, payload) => {
     if (ioInstance) {
-      ioInstance.emit(event, payload);
+      // Every connected user receives this, so only the action goes out — record ids would let
+      // anyone list other teams' connections. Clients just refetch what they're allowed to see.
+      ioInstance.emit(event, { action: payload?.action });
     }
   }
 };

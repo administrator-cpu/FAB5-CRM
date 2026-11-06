@@ -11,6 +11,8 @@
  * middleware is the only file that needs to change — the route/
  * controller below don't need to know how auth is implemented.
  */
+const { safeCompare } = require("../utils/security");
+
 const requireInternalApiKey = (req, res, next) => {
   const providedKey = req.headers["x-internal-api-key"];
   const expectedKey = process.env.INTERNAL_API_KEY;
@@ -22,7 +24,7 @@ const requireInternalApiKey = (req, res, next) => {
     return res.status(500).json({ success: false, message: "Internal auth misconfigured." });
   }
 
-  if (!providedKey || providedKey !== expectedKey) {
+  if (!safeCompare(providedKey, expectedKey)) {
     return res.status(401).json({ success: false, message: "Unauthorized internal request." });
   }
 

@@ -62,12 +62,6 @@ const authService = {
   //admin
 
   //users
-  /* 
-  deleteUser: async (productId) => {
-    const { data } = await api.delete(`/users/all/${productId}`);
-    return data;
-  }, 
-  */
   getAllUsers: async (page = 1, limit = 25) => {
     const { data } = await api.get(`/users/all?page=${page}&limit=${limit}`);
     return data;
