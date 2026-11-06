@@ -1,9 +1,11 @@
+const crypto = require("crypto");
+
 const generateOpportunityId = () => {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
   let suffix = "";
   for (let i = 0; i < 4; i++) {
-    suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+    suffix += chars.charAt(crypto.randomInt(chars.length));
   }
 
   const now = new Date();

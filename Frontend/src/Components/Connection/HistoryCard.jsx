@@ -158,6 +158,8 @@ function OpportunityDetails() {
 
   const renderDocCard = (label, doc) => {
     if (!doc || !doc.url) return null;
+    // Signed copies that came back from e-Hastakshar rather than a manual upload.
+    const esigned = (data?.esignRequests || []).some((request) => request.signedDocument?.url === doc.url);
     return (
       <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg shadow-sm">
         <div className="flex items-center gap-3 overflow-hidden">
@@ -166,11 +168,13 @@ function OpportunityDetails() {
             <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">{label}</span>
             <span className="text-sm font-semibold text-gray-800 truncate" title={doc.fileName}>{doc.fileName}</span>
             {doc.uploadedAt && (
-              <span className="text-[11px] text-gray-500">Uploaded {formatDate(doc.uploadedAt)}</span>
+              <span className="text-[11px] text-gray-500">
+                {esigned ? "eSigned" : "Uploaded"} {formatDate(doc.uploadedAt)}
+              </span>
             )}
           </div>
         </div>
-        <a href={`https://docs.google.com/viewer?url=${doc.url}`} target="_blank" rel="noopener noreferrer" className="ml-4 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors whitespace-nowrap">
+        <a href={doc.url} target="_blank" rel="noopener noreferrer" className="ml-4 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors whitespace-nowrap">
           View PDF
         </a>
       </div>

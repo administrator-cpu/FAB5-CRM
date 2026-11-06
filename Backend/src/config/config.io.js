@@ -2,6 +2,7 @@
 const socketIO = require("socket.io");
 const jwt = require("jsonwebtoken");
 const ioHelper = require("../utils/ioHelper");
+const User = require("../models/userModel");
 
 const initSocket = (server) => {
   const allowedOrigins = [
@@ -21,23 +22,31 @@ const initSocket = (server) => {
     }
   });
 
-  io.use((socket, next) => {
-    let token = socket.handshake.auth?.token;
+  // Everything is inside try: a rejected promise here would be an unhandled rejection,
+  // which shuts the server down (server.js).
+  io.use(async (socket, next) => {
+    try {
+      let token = socket.handshake.auth?.token;
 
-    if (!token && socket.handshake.headers?.cookie) {
-      const parts = socket.handshake.headers.cookie.split('token=');
-      if (parts.length > 1) {
-        token = parts[1].split(';')[0];
+      if (!token && socket.handshake.headers?.cookie) {
+        const match = socket.handshake.headers.cookie.match(/(?:^|;\s*)token=([^;]+)/);
+        if (match) token = decodeURIComponent(match[1]);
       }
-    }
 
-    if (!token) return next(new Error("Authentication error"));
+      if (!token || typeof token !== "string") return next(new Error("Authentication error"));
 
-    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-      if (err) return next(new Error("Authentication error"));
-      socket.user = decoded; 
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      // Role and account state come from the database, not the token, so a deactivated or
+      // demoted user (or a token from before a password reset) gets no room.
+      const user = await User.findById(decoded.id).select("role isActive tokenVersion").lean();
+      if (!user || !user.isActive || (decoded.tv || 0) !== (user.tokenVersion || 0)) {
+        return next(new Error("Authentication error"));
+      }
+      socket.user = { id: String(user._id), role: user.role };
       next();
-    });
+    } catch (err) {
+      next(new Error("Authentication error"));
+    }
   });
 
   io.on("connection", (socket) => {

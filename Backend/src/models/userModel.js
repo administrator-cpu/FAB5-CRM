@@ -76,6 +76,9 @@ const userSchema = new mongoose.Schema(
 
     refreshToken: { type: String, select: false },
     refreshTokenExpire: { type: Date, select: false },
+
+    // Bumped on password reset / change; login tokens carry it, so older tokens stop working.
+    tokenVersion: { type: Number, default: 0 },
   },
   {
     timestamps: true,

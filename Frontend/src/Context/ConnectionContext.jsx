@@ -148,6 +148,17 @@ export const ConnectionProvider = ({ children }) => {
     [getDashboardData],
   );
 
+  const sendForEsign = useCallback(
+    async (id, payload) => {
+      return await handleRequest(
+        () => ConnectionService.sendForEsign(id, payload),
+        "Sent for eSign",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
   const approveConnection = useCallback(
     async (id) => {
       return await handleRequest(
@@ -320,6 +331,7 @@ export const ConnectionProvider = ({ children }) => {
       setSingleConnectionData,
       approveConnection,
       uploadSignedDocuments,
+      sendForEsign,
       uploadSignedRmacd,
       updateTopology,
       updateTelcoCircuitId,
@@ -349,6 +361,7 @@ export const ConnectionProvider = ({ children }) => {
       singleConnectionData,
       approveConnection,
       uploadSignedDocuments,
+      sendForEsign,
       uploadSignedRmacd,
       updateTopology,
       updateTelcoCircuitId,

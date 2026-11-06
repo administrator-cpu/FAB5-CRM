@@ -1,5 +1,5 @@
-const crypto = require("crypto");
 const logger = require("../utils/logger");
+const { safeCompare } = require("../utils/security");
 
 /**
  * Guards the Ledgerly sync endpoints. Ledgerly sends its own key (LEDGERLY_API_KEY) in the
@@ -13,10 +13,7 @@ const requireLedgerlyKey = (req, res, next) => {
     return res.status(500).json({ success: false, message: "Ledgerly auth misconfigured." });
   }
 
-  const providedKey = req.headers["x-api-key"];
-  const expected = Buffer.from(expectedKey);
-  const provided = Buffer.from(typeof providedKey === "string" ? providedKey : "");
-  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+  if (!safeCompare(req.headers["x-api-key"], expectedKey)) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 

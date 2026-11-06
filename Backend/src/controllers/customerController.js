@@ -9,6 +9,25 @@ const logger = require("../utils/logger");
 const ROLES = require("../constants/roles");
 const { standardizeState } = require("../constants/states");
 const { sendTransactionEmail } = require("../services/sendEmail");
+const { canAccessCustomer } = require("../utils/access");
+const { escapeRegex } = require("../utils/security");
+
+// Loads a customer for a billing-profile change, refusing employees who don't manage it.
+const findManagedCustomer = async (req, next, customerId) => {
+  const customer = await Customer.findById(customerId);
+  if (!customer) {
+    next(new AppError("Customer not found", 404));
+    return null;
+  }
+  if (!canAccessCustomer(req.user, customer)) {
+    next(new AppError("You can only change your own customers", 403));
+    return null;
+  }
+  return customer;
+};
+
+// Longest single notice-period extension (the app offers 30 days; one spare day covers time zones).
+const MAX_EXTENSION_DAYS = 31;
 
 const buildHistorySnapshot = (connection) => ({
   serviceType: connection.serviceType,
@@ -48,7 +67,7 @@ const createCustomer = asyncHandler(async (req, res, next) => {
   }
 
   const existCustomer = await Customer.findOne({
-    email: { $regex: new RegExp(`^${email}$`, "i") }
+    email: { $regex: new RegExp(`^${escapeRegex(email)}$`, "i") }
   });
   if (existCustomer) {
     return next(new AppError("Customer with this email already exists", 400));
@@ -138,8 +157,14 @@ const editCustomer = asyncHandler(async (req, res, next) => {
   if (!customer) {
     return next(new AppError("No customer found with that ID", 404));
   }
+  if (!canAccessCustomer(req.user, customer)) {
+    return next(new AppError("You can only edit your own customers", 403));
+  }
 
-  const updatableFields = ['name', 'person', 'email', 'mobile', 'customerType', 'managedBy', 'isActive'];
+  // Only admins can reassign a customer or change whether it is active.
+  const updatableFields = req.user.role === ROLES.ADMIN
+    ? ['name', 'person', 'email', 'mobile', 'customerType', 'managedBy', 'isActive']
+    : ['name', 'person', 'email', 'mobile', 'customerType'];
   updatableFields.forEach(field => {
     if (req.body[field] !== undefined) {
       customer[field] = req.body[field];
@@ -218,6 +243,9 @@ const deleteCustomer = asyncHandler(async (req, res, next) => {
 
   if (!customer) {
     return next(new AppError("No customer found with that ID", 404));
+  }
+  if (!canAccessCustomer(req.user, customer)) {
+    return next(new AppError("You can only delete your own customers", 403));
   }
 
   customer.isActive = false;
@@ -503,6 +531,9 @@ const getCustomersById = asyncHandler(async (req, res, next) => {
   if (!customer) {
     return next(new AppError("Customer not found", 404));
   }
+  if (!canAccessCustomer(req.user, customer)) {
+    return next(new AppError("You can only view your own customers", 403));
+  }
 
   res.status(200).json({
     success: true,
@@ -611,6 +642,13 @@ const extension = asyncHandler(async (req, res, next) => {
   }
   if (connection.status !== "Notice Period") {
     return next(new AppError(`Can only extend connections in Notice Period`, 400));
+  }
+
+  // Each extension moves the disconnection date by at most MAX_EXTENSION_DAYS.
+  const currentFinalDate = new Date(connection.terminationDetails?.finalDate);
+  const extendFrom = Math.max(isNaN(currentFinalDate) ? 0 : currentFinalDate.getTime(), Date.now());
+  if (parsedNewDate.getTime() > extendFrom + MAX_EXTENSION_DAYS * 24 * 60 * 60 * 1000) {
+    return next(new AppError(`An extension can move the disconnection date by at most ${MAX_EXTENSION_DAYS} days`, 400));
   }
 
   if (req.user.role === ROLES.EMPLOYEE) {
@@ -734,14 +772,11 @@ const retention = asyncHandler(async (req, res, next) => {
 });
 
 const addBillingProfile = asyncHandler(async (req, res, next) => {
-  console.log("test")
   const { customerId } = req.params;
   const { label, gstNumber, address } = req.body;
 
-  const customer = await Customer.findById(customerId);
-  if (!customer) {
-    return next(new AppError("Customer not found", 404));
-  }
+  const customer = await findManagedCustomer(req, next, customerId);
+  if (!customer) return;
 
   const newProfile = { label, gstNumber, address: address || {} };
 
@@ -775,10 +810,8 @@ const editBillingProfile = asyncHandler(async (req, res, next) => {
   const { customerId, profileId } = req.params;
   const { label, gstNumber, address } = req.body;
 
-  const customer = await Customer.findById(customerId);
-  if (!customer) {
-    return next(new AppError("Customer not found", 404));
-  }
+  const customer = await findManagedCustomer(req, next, customerId);
+  if (!customer) return;
 
   const profile = customer.billingProfile.id(profileId);
   if (!profile) {
@@ -821,10 +854,8 @@ const editBillingProfile = asyncHandler(async (req, res, next) => {
 const removeBillingProfile = asyncHandler(async (req, res, next) => {
   const { customerId, profileId } = req.params;
 
-  const customer = await Customer.findById(customerId);
-  if (!customer) {
-    return next(new AppError("Customer not found", 404));
-  }
+  const customer = await findManagedCustomer(req, next, customerId);
+  if (!customer) return;
 
   const profile = customer.billingProfile.id(profileId);
   if (!profile) {

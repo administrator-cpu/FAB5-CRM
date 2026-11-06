@@ -19,7 +19,13 @@ const createGeneratedPo = async ({ opportunityId, customer, billing, connection 
     "crm/connections/purchaseOrders",
   );
 
-  return { fileName: documentFileName(customer.name, opportunityId, "PO"), ...uploaded };
+  // pageCount / signatureBoxes let eSign put the stamp on the PO's own signature line.
+  return {
+    fileName: documentFileName(customer.name, opportunityId, "PO"),
+    ...uploaded,
+    pageCount: pdf.pageCount,
+    signatureBoxes: pdf.signatureBoxes,
+  };
 };
 
 /**

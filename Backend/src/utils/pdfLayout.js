@@ -241,11 +241,19 @@ const signRow = (doc, labels, { gapBefore = 18 } = {}) => {
   doc.y = y + 24;
 };
 
+// Blank space above each signature line: room to sign by hand, or for e-Hastakshar's eSign stamp
+// (about 140 × 70 pt) to sit on the line.
+const SIGNATURE_SPACE = 78;
+
+// Draws the signature line + caption and records where it is (doc.signatureBoxes) so eSign can place
+// the stamp on it. page is 1-based; x / y / width are in points from the top-left, y being the line.
 const signatureCaption = (doc, text) => {
-  ensureSpace(doc, 50);
-  doc.y += 32;
+  ensureSpace(doc, SIGNATURE_SPACE + 18);
+  doc.y += SIGNATURE_SPACE;
   const width = 250;
   const x = PAGE.width - MARGIN.right - width;
+  const range = doc.bufferedPageRange();
+  (doc.signatureBoxes ||= []).push({ page: range.start + range.count, x, y: doc.y, width });
   doc.moveTo(x, doc.y).lineTo(x + width, doc.y).lineWidth(0.6).stroke(COLORS.border);
   doc.font(FONT.bold).fontSize(8.5).fillColor(COLORS.text)
     .text(text, x, doc.y + 4, { width, align: "center" });
@@ -254,7 +262,8 @@ const signatureCaption = (doc, text) => {
 };
 
 // ─────────── Document wrapper ───────────
-// Creates an A4 document, runs draw(doc) and resolves with the PDF bytes.
+// Creates an A4 document, runs draw(doc) and resolves with the PDF bytes. The Buffer also carries
+// pageCount and signatureBoxes (see signatureCaption), used to place eSign stamps.
 const renderPdf = ({ title, subject, margins = MARGIN }, draw) => new Promise((resolve, reject) => {
   try {
     const doc = new PDFDocument({
@@ -265,11 +274,18 @@ const renderPdf = ({ title, subject, margins = MARGIN }, draw) => new Promise((r
     });
 
     const chunks = [];
+    let pageCount = 0;
     doc.on("data", (chunk) => chunks.push(chunk));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("end", () => {
+      const pdf = Buffer.concat(chunks);
+      pdf.pageCount = pageCount;
+      pdf.signatureBoxes = doc.signatureBoxes || [];
+      resolve(pdf);
+    });
     doc.on("error", reject);
 
     draw(doc);
+    pageCount = doc.bufferedPageRange().count;
     doc.end();
   } catch (error) {
     reject(error);

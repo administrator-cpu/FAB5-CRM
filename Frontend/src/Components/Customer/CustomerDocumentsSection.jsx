@@ -13,7 +13,7 @@ function CustomerDocumentsSection({ documents, userRole }) {
         </div>
       </div>
       <a 
-        href={`https://docs.google.com/viewer?url=${doc.url}`} 
+        href={doc.url}
         target="_blank" 
         rel="noopener noreferrer"
         className="ml-4 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors whitespace-nowrap"

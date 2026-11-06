@@ -1,6 +1,8 @@
 const rateLimit = require("express-rate-limit");
+const jwt = require("jsonwebtoken");
 const { getRedis } = require("../config/cache");
 const logger = require("../utils/logger")
+const { safeCompare } = require("../utils/security");
 const redis = getRedis();
 
 let RedisStore;
@@ -66,10 +68,37 @@ const globalLimiter = rateLimit({
   keyGenerator,
   store: buildStore("rl:global:"),
   message: { success: false, message: "Too many requests, please try again later." },
+  // Only anonymous traffic is limited here: logged-in users and integrations (valid token or key)
+  // are never throttled, so busy offices behind one IP aren't affected.
   skip: (req) => {
-    return req.method === "OPTIONS" || strictAuthPaths.includes(req.path);
+    return req.method === "OPTIONS"
+      || strictAuthPaths.includes(req.path)
+      || req.path === "/health"
+      || req.path.startsWith("/files/")
+      || hasValidCredentials(req);
   }
 })
+
+// True when the request carries a valid login token (header or cookie) or integration key.
+const hasValidCredentials = (req) => {
+  const authHeader = req.headers.authorization;
+  const tokens = [
+    authHeader?.startsWith("Bearer") ? authHeader.split(" ")[1] : null,
+    req.cookies?.token,
+  ].filter((token) => typeof token === "string" && token);
+  for (const token of tokens) {
+    try {
+      jwt.verify(token, process.env.JWT_SECRET);
+      return true;
+    } catch {
+      // try the next one
+    }
+  }
+  const apiKey = req.headers["x-api-key"];
+  return safeCompare(apiKey, process.env.INTERNAL_CRM_SECRET)
+    || safeCompare(apiKey, process.env.LEDGERLY_API_KEY)
+    || safeCompare(req.headers["x-internal-api-key"], process.env.INTERNAL_API_KEY);
+};
 
 module.exports = {
   authLimiter,

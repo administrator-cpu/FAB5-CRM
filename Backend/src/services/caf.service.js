@@ -24,7 +24,13 @@ const createGeneratedCaf = async ({ opportunityId, customer, billing, connection
     "crm/connections/cafs",
   );
 
-  return { fileName: documentFileName(customer.name, opportunityId, "CAF"), ...uploaded };
+  // pageCount / signatureBoxes let eSign put the stamp on the CAF's own signature lines.
+  return {
+    fileName: documentFileName(customer.name, opportunityId, "CAF"),
+    ...uploaded,
+    pageCount: pdf.pageCount,
+    signatureBoxes: pdf.signatureBoxes,
+  };
 };
 
 /**

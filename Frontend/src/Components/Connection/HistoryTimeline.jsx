@@ -25,6 +25,9 @@ const getActionTheme = (action) => {
     case 'CREATED':
     case 'GENERATION':
     case 'SIGNED_DOCUMENT_UPLOADED':
+    case 'ESIGN_SENT':
+    case 'ESIGN_COMPLETED':
+    case 'ESIGN_UPDATED':
       return { color: 'bg-blue-100 text-blue-700 border-blue-200', dot: 'bg-blue-500' };
     case 'APPROVED':
     case 'ACTIVATED':
@@ -46,9 +49,16 @@ const getActionTheme = (action) => {
   }
 };
 
-const HistoryTimeline = ({ history }) => {
+// eSign activity (signer names / emails) is shown to admins and employees only, like the eSign controls.
+const ESIGN_ACTIONS = ['ESIGN_SENT', 'ESIGN_COMPLETED', 'ESIGN_UPDATED'];
+
+const HistoryTimeline = ({ history: fullHistory }) => {
   const { user } = useAuth();
-  
+  const canSeeEsign = ['admin', 'employee'].includes(user?.role);
+  const history = canSeeEsign
+    ? fullHistory
+    : (fullHistory || []).filter((record) => !ESIGN_ACTIONS.includes(record.action));
+
   if (!history || history.length === 0) {
     return (
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mt-6">
