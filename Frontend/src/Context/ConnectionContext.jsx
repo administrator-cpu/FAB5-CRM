@@ -159,6 +159,28 @@ export const ConnectionProvider = ({ children }) => {
     [getDashboardData],
   );
 
+  const sendRmacdForEsign = useCallback(
+    async (id, payload) => {
+      return await handleRequest(
+        () => ConnectionService.sendRmacdForEsign(id, payload),
+        "RMACD sent for eSign",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
+  const sendBatchForEsign = useCallback(
+    async (batchId, payload) => {
+      return await handleRequest(
+        () => ConnectionService.sendBatchForEsign(batchId, payload),
+        "Sent for eSign",
+        () => getDashboardData(),
+      );
+    },
+    [getDashboardData],
+  );
+
   const approveConnection = useCallback(
     async (id) => {
       return await handleRequest(
@@ -332,6 +354,8 @@ export const ConnectionProvider = ({ children }) => {
       approveConnection,
       uploadSignedDocuments,
       sendForEsign,
+      sendRmacdForEsign,
+      sendBatchForEsign,
       uploadSignedRmacd,
       updateTopology,
       updateTelcoCircuitId,
@@ -362,6 +386,8 @@ export const ConnectionProvider = ({ children }) => {
       approveConnection,
       uploadSignedDocuments,
       sendForEsign,
+      sendRmacdForEsign,
+      sendBatchForEsign,
       uploadSignedRmacd,
       updateTopology,
       updateTelcoCircuitId,

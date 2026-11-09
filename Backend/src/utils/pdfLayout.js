@@ -222,7 +222,9 @@ const gradientHeading = (doc, text, { align = "left", fontSize = 10, keepWithNex
   doc.y = headingY + doc.currentLineHeight(true) + 4;
 };
 
-const signRow = (doc, labels, { gapBefore = 18 } = {}) => {
+// signatureAt: index of the label whose line is signed on; it's recorded in doc.signatureBoxes
+// (like signatureCaption) so eSign can stamp there.
+const signRow = (doc, labels, { gapBefore = 18, signatureAt } = {}) => {
   ensureSpace(doc, gapBefore + 10);
   doc.y += gapBefore;
   const y = doc.y;
@@ -233,8 +235,14 @@ const signRow = (doc, labels, { gapBefore = 18 } = {}) => {
   let x = MARGIN.left;
   labels.forEach((label, i) => {
     doc.text(label, x, y, { lineBreak: false });
-    doc.moveTo(x + labelWidths[i], y + 9).lineTo(x + labelWidths[i] + lineWidth - 14, y + 9)
+    const lineStart = x + labelWidths[i];
+    doc.moveTo(lineStart, y + 9).lineTo(lineStart + lineWidth - 14, y + 9)
       .lineWidth(0.6).stroke(COLORS.border);
+    if (i === signatureAt) {
+      // y is the top of the row: the labels sit on the line itself, so the stamp goes above them.
+      const range = doc.bufferedPageRange();
+      (doc.signatureBoxes ||= []).push({ page: range.start + range.count, x: lineStart, y, width: lineWidth - 14 });
+    }
     x += labelWidths[i] + lineWidth;
   });
   doc.x = MARGIN.left;
@@ -297,6 +305,6 @@ module.exports = {
   valueOrNA, formatNumber, formatDate, documentFileName,
   brandGradient, gradientText, gradientHeading,
   drawHeader, stampHeadersAndFooters,
-  bottomLimit, ensureSpace, sectionBar, detailRows, gridTable, writeRuns, signRow, signatureCaption,
+  bottomLimit, ensureSpace, sectionBar, detailRows, gridTable, writeRuns, signRow, signatureCaption, SIGNATURE_SPACE,
   renderPdf,
 };

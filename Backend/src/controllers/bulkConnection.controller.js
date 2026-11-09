@@ -22,6 +22,8 @@ const { canAccessCustomer } = require('../utils/access');
 const singleBillingProfileId = (customer) =>
   customer?.billingProfile?.length === 1 ? customer.billingProfile[0]._id : null;
 const ioHelper = require('../utils/ioHelper');
+const ehastakshar = require('../services/ehastakshar.service');
+const esignSend = require('../services/esignSend.service');
 
 const withCreatedBy = async (connectionId) => {
   return await Connection
@@ -475,6 +477,7 @@ const summarizeBatch = (batch, connections) => ({
   createdBy: batch.createdBy,
   generatedDocuments: batch.generatedDocuments,
   signedDocuments: batch.signedDocuments,
+  esignRequests: batch.esignRequests || [],
   removedCount: Math.max(batch.connections.length - connections.length, 0),
   connections: connections.map((conn) => ({
     _id: conn._id,
@@ -569,6 +572,67 @@ const uploadBulkSignedDocuments = asyncHandler(async (req, res, next) => {
       + (skipped.length ? ` (${skipped.length} already approved, left unchanged)` : ""),
     applied: open.map((conn) => conn.opportunityId),
     skipped,
+    batch: summarizeBatch(batch.toObject(), connections),
+  });
+});
+
+// Sends the batch CAF and/or PO for eSign once; when signed, the e-Hastakshar callback adds the
+// signed copies to every connection of the batch that hasn't been approved (like the upload above).
+const sendBatchForEsign = asyncHandler(async (req, res, next) => {
+  if (!ehastakshar.isConfigured()) return next(esignSend.notConfiguredError());
+
+  const batch = await BulkBatch.findById(req.params.batchId);
+  if (!batch) return next(new AppError("Bulk batch not found", 404));
+
+  const customer = await Customer.findById(batch.customer).select("name managedBy");
+  if (!canAccessCustomer(req.user, customer)) {
+    return next(new AppError("You can only send documents for your own customers", 403));
+  }
+
+  const connections = await Connection.find({ bulkBatch: batch._id, status: LIVE_BATCH_CONNECTION });
+  const open = connections.filter((conn) => !areSignedDocumentsLocked(conn));
+  if (open.length === 0) {
+    return next(new AppError("Every connection in this batch is approved, deleted or cancelled — nothing left to sign", 400));
+  }
+
+  const { signers, error } = esignSend.parseSigners(req.body);
+  if (error) return next(error);
+
+  const requested = Array.isArray(req.body.documents) ? req.body.documents : ["CAF", "PO"];
+  const docTypes = ["CAF", "PO"].filter((docType) => {
+    const key = docType.toLowerCase();
+    return requested.includes(docType) && !batch.signedDocuments?.[key]?.url && batch.generatedDocuments?.[key]?.url;
+  });
+  if (docTypes.length === 0) return next(new AppError("There is no unsigned CAF or PO to send for this batch", 400));
+
+  const outcome = await esignSend.sendDocuments({
+    documents: docTypes.map((docType) => ({
+      docType,
+      generated: batch.generatedDocuments[docType.toLowerCase()],
+      title: `${docType} - ${customer?.name || ""} - ${batch.batchNumber} (${connections.length} links)`,
+      fallbackName: `${docType}_${batch.batchNumber}.pdf`,
+    })),
+    signers,
+    sentBy: req.user._id,
+    logRef: batch.batchNumber,
+  });
+
+  if (outcome.sent.length > 0) {
+    batch.esignRequests.push(...outcome.requests);
+    await batch.save();
+    const note = `Bulk batch ${batch.batchNumber} ${outcome.sent.join(" & ")} sent for eSign. Signing order: ${esignSend.signerSummary(signers)}`;
+    await Connection.updateMany(
+      { _id: { $in: open.map((conn) => conn._id) } },
+      { $push: { history: { action: "ESIGN_SENT", performedBy: req.user._id, date: new Date(), note } } },
+    );
+    ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: batch._id });
+    logger.info("Bulk batch sent for eSign", { batchNumber: batch.batchNumber, documents: outcome.sent, by: req.user._id });
+  }
+  if (outcome.failure) return next(esignSend.failureError(outcome));
+
+  res.status(200).json({
+    success: true,
+    message: esignSend.successMessage(outcome.sent, signers),
     batch: summarizeBatch(batch.toObject(), connections),
   });
 });
@@ -881,6 +945,7 @@ const commitActiveBulkConnections = asyncHandler(async (req, res, next) => {
 module.exports = {
   getCustomerBulkBatches,
   uploadBulkSignedDocuments,
+  sendBatchForEsign,
   downloadTemplate,
   uploadBulkConnections,
   createBulkConnections,

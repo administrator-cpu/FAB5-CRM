@@ -235,7 +235,8 @@ function BulkConnectionUpload({ customerId }) {
         </section>
       )}
 
-      <BulkBatches batches={batches} canManage={canManage} onUpdated={loadBatches} />
+      <BulkBatches batches={batches} canManage={canManage} onUpdated={loadBatches}
+        defaultSigner={{ name: customerInformation?.person, email: customerInformation?.email }} />
     </div>
   );
 }

@@ -115,6 +115,18 @@ export const ConnectionService = {
     });
     return data;
   },
+  sendRmacdForEsign: async (id, payload) => {
+    const { data } = await api.post(`/connection/${id}/rmacd/esign`, payload, {
+      withCredentials: true,
+    });
+    return data;
+  },
+  sendBatchForEsign: async (batchId, payload) => {
+    const { data } = await api.post(`/bulk-connections/batches/${batchId}/esign`, payload, {
+      withCredentials: true,
+    });
+    return data;
+  },
   sendForEsign: async (id, payload) => {
     const { data } = await api.post(`/connection/${id}/esign`, payload, {
       withCredentials: true,

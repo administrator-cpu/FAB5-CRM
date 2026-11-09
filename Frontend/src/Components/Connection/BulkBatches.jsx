@@ -2,10 +2,11 @@ import React, { useState } from "react";
 import { FileDown, Upload, CheckCircle2, Clock, Lock, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import toast from "react-hot-toast";
 import { useConnection } from "../../Context/ConnectionContext";
+import { EsignStatusNote, EsignSignerForm } from "./EsignPanel";
 
 const formatDate = (value) => (value ? new Date(value).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "");
 
-const DocumentLinks = ({ title, unsigned, signed }) => (
+const DocumentLinks = ({ title, unsigned, signed, esign }) => (
   <div className="flex flex-col gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
     <div className="flex items-center justify-between gap-2">
       <span className="text-sm font-bold text-gray-800">{title}</span>
@@ -31,6 +32,7 @@ const DocumentLinks = ({ title, unsigned, signed }) => (
         </a>
       )}
     </div>
+    {esign && (!signed?.url || esign.status === "COMPLETED") && <EsignStatusNote esign={esign} />}
   </div>
 );
 
@@ -42,8 +44,8 @@ const FilePicker = ({ label, file, onChange, name }) => (
   </label>
 );
 
-const BatchCard = ({ batch, canManage, onUpdated }) => {
-  const { uploadBulkSignedDocuments } = useConnection();
+const BatchCard = ({ batch, canManage, defaultSigner, onUpdated }) => {
+  const { uploadBulkSignedDocuments, sendBatchForEsign } = useConnection();
   const [files, setFiles] = useState({ caf: null, purchaseOrder: null });
   const [isUploading, setIsUploading] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -52,6 +54,24 @@ const BatchCard = ({ batch, canManage, onUpdated }) => {
   const signedCount = batch.connections.filter((c) => c.signedDocumentsComplete).length;
   const openCount = batch.connections.filter((c) => !c.locked).length;
   const canUpload = canManage && openCount > 0;
+
+  // Latest eSign request per batch document (requests are stored oldest first).
+  const latestEsign = (docType) =>
+    [...(batch.esignRequests || [])].reverse().find((r) => r.docType === docType) || null;
+  const esignCaf = canManage ? latestEsign("CAF") : null;
+  const esignPo = canManage ? latestEsign("PO") : null;
+  const unsignedDocs = [!batch.signedDocuments?.caf?.url && "CAF", !batch.signedDocuments?.po?.url && "PO"].filter(Boolean);
+  const unsentDocs = unsignedDocs.filter((docType) => !(docType === "CAF" ? esignCaf : esignPo));
+
+  const handleSendEsign = async (signers) => {
+    const result = await sendBatchForEsign(batch._id, {
+      signers,
+      // First send covers what hasn't gone out yet; "Send again" resends every unsigned document.
+      ...(unsentDocs.length > 0 && { documents: unsentDocs }),
+    });
+    if (result) onUpdated?.(result.batch);
+    return result;
+  };
 
   const handleFileChange = (e) => {
     const { name, files: selected } = e.target;
@@ -94,9 +114,18 @@ const BatchCard = ({ batch, canManage, onUpdated }) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <DocumentLinks title="CAF" unsigned={batch.generatedDocuments?.caf} signed={batch.signedDocuments?.caf} />
-        <DocumentLinks title="PO" unsigned={batch.generatedDocuments?.po} signed={batch.signedDocuments?.po} />
+        <DocumentLinks title="CAF" unsigned={batch.generatedDocuments?.caf} signed={batch.signedDocuments?.caf} esign={esignCaf} />
+        <DocumentLinks title="PO" unsigned={batch.generatedDocuments?.po} signed={batch.signedDocuments?.po} esign={esignPo} />
       </div>
+
+      {canUpload && unsignedDocs.length > 0 && (
+        <EsignSignerForm
+          defaultSigner={defaultSigner}
+          sendLabel={unsentDocs.length > 0 ? `Send ${unsentDocs.join(" & ")} for eSign` : "Send again"}
+          description={`Once everyone has signed, the signed copies are added to the ${openCount} unapproved connection${openCount === 1 ? "" : "s"} of this batch automatically.`}
+          onSend={handleSendEsign}
+        />
+      )}
 
       {canUpload ? (
         <div className="flex flex-col gap-3">
@@ -157,16 +186,16 @@ const BatchCard = ({ batch, canManage, onUpdated }) => {
 
 // Bulk uploads of this customer: each has one unsigned PO / CAF covering all its connections,
 // and the signed copies are uploaded here once for the whole batch.
-const BulkBatches = ({ batches, canManage, onUpdated }) => {
+const BulkBatches = ({ batches, canManage, defaultSigner, onUpdated }) => {
   if (!batches?.length) return null;
   return (
     <section className="p-5 border border-gray-200 rounded-lg flex flex-col gap-4">
       <div>
         <h2 className="text-xl font-bold text-gray-800">Bulk Orders — Signing Documents</h2>
-        <p className="text-sm text-gray-500">Download the PO and CAF for a batch, get them signed by the customer, then upload the signed copies once for all its connections.</p>
+        <p className="text-sm text-gray-500">Send a batch's PO and CAF for eSign, or download them, get them signed by the customer and upload the signed copies once for all its connections.</p>
       </div>
       {batches.map((batch) => (
-        <BatchCard key={batch._id} batch={batch} canManage={canManage} onUpdated={onUpdated} />
+        <BatchCard key={batch._id} batch={batch} canManage={canManage} defaultSigner={defaultSigner} onUpdated={onUpdated} />
       ))}
     </section>
   );

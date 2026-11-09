@@ -1,7 +1,7 @@
 const {
   LOGO_PATH, MARGIN, CONTENT_WIDTH, COLORS, FONT, NA,
   valueOrNA, formatNumber, gradientText, gradientHeading,
-  stampHeadersAndFooters, ensureSpace, detailRows, gridTable, signRow, renderPdf,
+  stampHeadersAndFooters, ensureSpace, detailRows, gridTable, signRow, renderPdf, SIGNATURE_SPACE,
 } = require("./pdfLayout");
 
 // RMACD — the "Charge Deviation Form" generated for upgrade / downgrade / shifting requests.
@@ -195,7 +195,8 @@ const generateRmacdPdf = (data) => renderPdf(
     drawChargesTable(doc, chargesColumns(data));
     if (data.requestType === "SHIFTING") drawShiftingAddresses(doc, data.shifting);
     else drawCurrentLocation(doc, data);
-    signRow(doc, ["Name & Signature of Customer", "Date"], { gapBefore: 50 });
+    // Room above the line for a hand signature or the eSign stamp, which lands on this line.
+    signRow(doc, ["Name & Signature of Customer", "Date"], { gapBefore: SIGNATURE_SPACE, signatureAt: 0 });
     stampHeadersAndFooters(doc, { header: false, footerCenter: FOOTER_TEXT, pageNumbers: false });
   },
 );

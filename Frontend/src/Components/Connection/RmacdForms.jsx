@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { FileDown, Upload, CheckCircle2, Clock, ExternalLink } from "lucide-react";
 import toast from "react-hot-toast";
 import { useConnection } from "../../Context/ConnectionContext";
+import { EsignStatusNote, EsignSignerForm } from "./EsignPanel";
 
 const REQUEST_ACTIONS = ["CREATED", "UPGRADE", "DOWNGRADE", "SHIFTING", "RATE_REVISION", "IP_ADDITION"];
 const RMACD_TYPES = ["UPGRADE", "DOWNGRADE", "SHIFTING"];
@@ -41,7 +42,7 @@ const FileLink = ({ href, title, icon, tone }) => (
 // upload the customer-signed copy. Admins and the employee managing this customer get the full card;
 // owners (approvers) get a read-only view with the signed forms only.
 const RmacdForms = ({ connection, user, onUploaded }) => {
-  const { uploadSignedRmacd } = useConnection();
+  const { uploadSignedRmacd, sendRmacdForEsign } = useConnection();
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -58,6 +59,18 @@ const RmacdForms = ({ connection, user, onUploaded }) => {
   // Owners only see forms that have been signed.
   const previous = forms.filter((f) => f !== current && (canManage || f.signed?.url)).slice().reverse();
   if (!current && previous.length === 0) return null;
+
+  // Latest eSign request for the current form (requests are stored oldest first).
+  const currentEsign = current
+    ? [...(connection.esignRequests || [])].reverse()
+      .find((r) => r.docType === "RMACD" && String(r.rmacdFormId) === String(current._id)) || null
+    : null;
+
+  const handleSendEsign = async (signers) => {
+    const result = await sendRmacdForEsign(connection._id, { signers });
+    if (result) onUploaded?.();
+    return result;
+  };
 
   const handleUpload = async () => {
     if (!file) return toast.error("Choose the signed RMACD form first");
@@ -96,7 +109,7 @@ const RmacdForms = ({ connection, user, onUploaded }) => {
           {!current.signed?.url && (
             <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               {canManage
-                ? "Download the RMACD form, get it signed by the customer and upload the signed copy. This request can't be approved until then."
+                ? "Send the RMACD form for eSign below (the signed copy comes back here automatically), or download it, get it signed by hand and upload the signed copy. This request can't be approved until then."
                 : "The signed RMACD form hasn't been uploaded yet. This request can be approved once it is."}
             </p>
           )}
@@ -109,6 +122,19 @@ const RmacdForms = ({ connection, user, onUploaded }) => {
               <FileLink href={current.signed.url} title="Signed RMACD" icon={<ExternalLink size={14} />} tone="text-emerald-700 bg-emerald-50 hover:bg-emerald-100" />
             )}
           </div>
+
+          {canManage && currentEsign && (!current.signed?.url || currentEsign.status === "COMPLETED") && (
+            <EsignStatusNote esign={currentEsign} />
+          )}
+
+          {canManage && !current.signed?.url && (
+            <EsignSignerForm
+              defaultSigner={{ name: connection.customer?.person, email: connection.customer?.email }}
+              sendLabel={currentEsign ? "Send again" : "Send RMACD for eSign"}
+              description="Once everyone has signed, the signed form is saved here automatically."
+              onSend={handleSendEsign}
+            />
+          )}
 
           {canManage && (
           <div className="flex flex-wrap items-center gap-2">

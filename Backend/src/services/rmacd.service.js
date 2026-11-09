@@ -22,6 +22,9 @@ const createGeneratedRmacd = async ({ customer, form }) => {
     fileName: documentFileName(customer?.name, form.opportunityId, `RMACD_${form.requestType}`),
     ...uploaded,
     generatedAt: new Date(),
+    // Lets eSign put the stamp on the customer signature line.
+    pageCount: pdf.pageCount,
+    signatureBoxes: pdf.signatureBoxes,
   };
 };
 

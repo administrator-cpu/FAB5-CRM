@@ -1,13 +1,6 @@
 const mongoose = require("mongoose");
 const generateOpportunityId = require("../services/opportunityId.service");
-
-// A signature line drawn on a generated PDF: 1-based page, points from the top-left (y = the line).
-const SignatureBoxSchema = new mongoose.Schema({
-  page: Number,
-  x: Number,
-  y: Number,
-  width: Number,
-}, { _id: false });
+const { SignatureBoxSchema, EsignRequestSchema } = require("./esignRequest.schema");
 
 const HistoryEntrySchema = new mongoose.Schema({
   action: {
@@ -215,45 +208,8 @@ const ConnectionSchema = new mongoose.Schema(
         signatureBoxes: [SignatureBoxSchema],
       },
     },
-    // eSign requests sent to e-Hastakshar for the generated CAF / PO, newest last. Sending a document
-    // again adds a new entry; the signed copy still comes back through uploadSignedDocuments for now.
-    esignRequests: [
-      {
-        docType: { type: String, enum: ["CAF", "PO"], required: true },
-        provider: { type: String, default: "ehastakshar" },
-        documentId: String,
-        transactionId: String,
-        // Signers in signing order; e-Hastakshar emails each one after the previous one has signed.
-        signers: [
-          {
-            _id: false,
-            order: Number,
-            signerId: String,
-            name: String,
-            email: String,
-          },
-        ],
-        // Single-signer fields on requests sent before multi-signer support.
-        signerId: String,
-        signerName: String,
-        signerEmail: String,
-        // PENDING when sent; COMPLETED once every signer has signed (set by the e-Hastakshar callback),
-        // or whatever final status they report (DECLINED, EXPIRED, …).
-        status: { type: String, default: "PENDING" },
-        expiresAt: Date,
-        sentBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        sentAt: { type: Date, default: Date.now },
-        completedAt: Date,
-        // Signed PDF received from e-Hastakshar; also applied as the official CAF / PO while the order is unapproved.
-        signedDocument: {
-          fileName: String,
-          url: String,
-          publicId: String,
-          storage: { type: String, enum: ["cloudinary", "local"] },
-          receivedAt: Date,
-        },
-      },
-    ],
+    // eSign requests sent to e-Hastakshar for the generated CAF / PO and RMACD forms, newest last.
+    esignRequests: [EsignRequestSchema],
     // RMACD (Charge Deviation Form) per upgrade / downgrade / shifting request: generated unsigned,
     // then the customer-signed copy is uploaded. historyEntryId links it to the request's history entry.
     rmacdForms: [
@@ -266,6 +222,9 @@ const ConnectionSchema = new mongoose.Schema(
           publicId: String,
           storage: { type: String, enum: ["cloudinary", "local"] },
           generatedAt: { type: Date },
+          // Where the customer signature line is, for the eSign stamp.
+          pageCount: Number,
+          signatureBoxes: [SignatureBoxSchema],
         },
         signed: {
           fileName: String,
