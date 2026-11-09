@@ -45,7 +45,12 @@ const createGeneratedBulkPo = async ({ batchNumber, customer, billing, connectio
     "crm/connections/purchaseOrders",
   );
 
-  return { fileName: documentFileName(customer.name, batchNumber, "PO"), ...uploaded };
+  return {
+    fileName: documentFileName(customer.name, batchNumber, "PO"),
+    ...uploaded,
+    pageCount: pdf.pageCount,
+    signatureBoxes: pdf.signatureBoxes,
+  };
 };
 
 module.exports = { createGeneratedPo, createGeneratedBulkPo };

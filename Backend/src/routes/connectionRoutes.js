@@ -9,7 +9,7 @@ const {
   markAsGeneration, cancelConnection, deleteConnection, activateConnection,
   editConnection, updateCoordinates, shiftConnection, addIp, undoDisconnection,
   getProjectManagerReport, downloadDocument, transferConnections, removeTransferLog, checkDuplicateTelcoCircuitIds,
-  uploadSignedDocuments, sendForEsign, updateTopology, updateTelcoCircuitId, uploadSignedRmacd, getIpStats
+  uploadSignedDocuments, sendForEsign, sendRmacdForEsign, updateTopology, updateTelcoCircuitId, uploadSignedRmacd, getIpStats
 } = require("../controllers/connectionController");
 const { updateDashboardMetricsPostResponse } = require("../middlewares/realtimeMiddleware");
 
@@ -45,6 +45,7 @@ router.patch("/:id/remark", protect, updateDashboardMetricsPostResponse, authori
 router.put("/:id/add-ip", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN, ROLES.OWNER), upload.fields([{ name: "purchaseOrder", maxCount: 1 }]), addIp);
 router.patch("/:id/signed-documents", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), upload.fields([{ name: "caf", maxCount: 1 }, { name: "purchaseOrder", maxCount: 1 }]), uploadSignedDocuments);
 router.post("/:id/esign", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), sendForEsign);
+router.post("/:id/rmacd/esign", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), sendRmacdForEsign);
 router.post("/migrate-pos", protect, updateDashboardMetricsPostResponse, authorize(ROLES.ADMIN), migratePurchaseOrders);
 router.post("/:customerId", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), upload.fields([{ name: "businessAgreement", maxCount: 1 }]), createConnection);
 

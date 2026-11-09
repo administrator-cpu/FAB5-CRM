@@ -11,7 +11,10 @@ const { createGeneratedPo } = require("../services/po.service");
 const { createGeneratedRmacd } = require("../services/rmacd.service");
 const ehastakshar = require("../services/ehastakshar.service");
 const { buildIps, expectedMrc } = require("../utils/ipCost");
-const { hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments } = require("../utils/signedDocuments");
+const {
+  hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments, currentRmacdForm, isRmacdFormOpen,
+} = require("../utils/signedDocuments");
+const esignSend = require("../services/esignSend.service");
 const generateOpportunityId = require("../services/opportunityId.service");
 const { sendConnectionEmail, sendChangeEmail } = require("../services/sendEmail");
 const emailQueue = require("../queue/email.queue");
@@ -45,16 +48,6 @@ const RMACD_REQUEST_TYPES = ["UPGRADE", "DOWNGRADE", "SHIFTING"];
 
 // Cancelled and deleted connections no longer hold their Telco Circuit ID, so it can be reused.
 const CIRCUIT_ID_RELEASED_STATUSES = ["Cancelled", "Deleted"];
-const REQUEST_ACTIONS = ["CREATED", "UPGRADE", "DOWNGRADE", "SHIFTING", "RATE_REVISION", "IP_ADDITION"];
-
-// The connection's current request entry and its RMACD form. form is null for request types without an
-// RMACD, and for requests raised before RMACD forms existed (those stay approvable as before).
-const currentRmacdForm = (connection) => {
-  const entry = [...connection.history].reverse().find((h) => REQUEST_ACTIONS.includes(h.action));
-  if (!entry || !RMACD_REQUEST_TYPES.includes(entry.action)) return { entry, form: null };
-  const form = connection.rmacdForms.find((f) => String(f.historyEntryId) === String(entry._id));
-  return { entry, form: form || null };
-};
 
 const withCreatedBy = async (connectionId) => {
   return await Connection
@@ -1961,15 +1954,11 @@ const uploadSignedDocuments = asyncHandler(async (req, res, next) => {
   });
 });
 
-const ESIGN_MAX_SIGNERS = ehastakshar.MAX_SIGNERS;
-
 // Sends the generated (unsigned) CAF and/or PO of a new order to e-Hastakshar, which emails the
-// signers a signing link one after another, in the order given. Already-signed documents are skipped. The signed copy is still uploaded by hand
-// (uploadSignedDocuments) until e-Hastakshar can notify us and let us download it.
+// signers a signing link one after another, in the order given. Already-signed documents are skipped;
+// the signed copy comes back through the e-Hastakshar callback (esignWebhook.controller).
 const sendForEsign = asyncHandler(async (req, res, next) => {
-  if (!ehastakshar.isConfigured()) {
-    return next(new AppError("eSign is not set up yet (EHASTAKSHAR_API_KEY is missing)", 503));
-  }
+  if (!ehastakshar.isConfigured()) return next(esignSend.notConfiguredError());
 
   const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
   if (!connection) return next(new AppError("Connection not found", 404));
@@ -1980,109 +1969,115 @@ const sendForEsign = asyncHandler(async (req, res, next) => {
   }
 
   if (connection.bulkBatch) {
-    return next(new AppError("eSign isn't available for bulk-upload connections yet", 400));
+    return next(new AppError("This connection is part of a bulk batch — send the batch's CAF and PO for eSign from Import Connections", 400));
   }
   if (getRequestType(connection.history) !== "CREATED") {
-    return next(new AppError("eSign is only available for new orders for now", 400));
+    return next(new AppError("eSign of the CAF and PO is only for new orders", 400));
   }
   if (areSignedDocumentsLocked(connection)) {
     return next(new AppError("Signed documents can no longer be changed once the order has been approved", 400));
   }
 
-  // Signers in signing order: e-Hastakshar emails signer 2 only after signer 1 has signed, and so on.
-  const rawSigners = Array.isArray(req.body.signers) ? req.body.signers : [];
-  if (rawSigners.length === 0) return next(new AppError("Add at least one signer", 400));
-  if (rawSigners.length > ESIGN_MAX_SIGNERS) {
-    return next(new AppError(`You can add up to ${ESIGN_MAX_SIGNERS} signers`, 400));
-  }
-  const signers = rawSigners.map((signer) => ({
-    name: String(signer?.name || "").trim(),
-    email: String(signer?.email || "").trim().toLowerCase(),
-  }));
-  for (const [index, signer] of signers.entries()) {
-    if (!signer.name || signer.name.length > 100) {
-      return next(new AppError(`Enter signer ${index + 1}'s name (up to 100 characters)`, 400));
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(signer.email)) {
-      return next(new AppError(`Enter a valid email for signer ${index + 1}`, 400));
-    }
-  }
-  if (new Set(signers.map((signer) => signer.email)).size !== signers.length) {
-    return next(new AppError("Each signer needs a different email", 400));
-  }
-  const signerSummary = signers.map((signer, index) => `${index + 1}. ${signer.name} (${signer.email})`).join(", ");
+  const { signers, error } = esignSend.parseSigners(req.body);
+  if (error) return next(error);
 
   const signed = {
     CAF: Boolean(connection.caf?.url),
     PO: connection.purchaseOrders.some((po) => po.requestType === "CREATED" && po.url),
   };
   const requested = Array.isArray(req.body.documents) ? req.body.documents : ["CAF", "PO"];
-  const documents = ["CAF", "PO"].filter((docType) =>
+  const docTypes = ["CAF", "PO"].filter((docType) =>
     requested.includes(docType) && !signed[docType] && connection.generatedDocuments?.[docType.toLowerCase()]?.url);
-  if (documents.length === 0) {
+  if (docTypes.length === 0) {
     return next(new AppError("There is no unsigned CAF or PO to send", 400));
   }
 
-  // Sent one at a time; if a later one fails, the ones already sent are still saved.
-  const sent = [];
-  let failure = null;
-  for (const docType of documents) {
-    const generated = connection.generatedDocuments[docType.toLowerCase()];
-    try {
-      const pdf = await ehastakshar.readStoredDocument(generated);
-      const result = await ehastakshar.sendForSigning({
-        pdf,
-        fileName: generated.fileName || `${docType}_${connection.opportunityId}.pdf`,
-        title: `${docType} - ${customer?.name || ""} - ${connection.opportunityId}`,
-        docType,
-        signers,
-        layout: generated,
-      });
-      connection.esignRequests.push({
-        docType,
-        documentId: result.documentId,
-        transactionId: result.transactionId,
-        signers: signers.map((signer, index) => ({
-          order: index + 1,
-          // Matched by email in case e-Hastakshar returns them in another order.
-          signerId: result.signers?.find((s) => String(s.email).toLowerCase() === signer.email)?.id,
-          ...signer,
-        })),
-        status: result.status || "PENDING",
-        expiresAt: result.expiresAt ? new Date(result.expiresAt) : undefined,
-        sentBy: req.user._id,
-        sentAt: new Date(),
-      });
-      sent.push(docType);
-    } catch (error) {
-      logger.error("eSign send failed", { opportunityId: connection.opportunityId, docType, error: error.message });
-      failure = { docType, message: error.message };
-      break;
-    }
-  }
+  const outcome = await esignSend.sendDocuments({
+    documents: docTypes.map((docType) => ({
+      docType,
+      generated: connection.generatedDocuments[docType.toLowerCase()],
+      title: `${docType} - ${customer?.name || ""} - ${connection.opportunityId}`,
+      fallbackName: `${docType}_${connection.opportunityId}.pdf`,
+    })),
+    signers,
+    sentBy: req.user._id,
+    logRef: connection.opportunityId,
+  });
 
-  if (sent.length > 0) {
+  if (outcome.sent.length > 0) {
+    connection.esignRequests.push(...outcome.requests);
     connection.history.push({
       action: "ESIGN_SENT",
       performedBy: req.user._id,
       date: new Date(),
-      note: `${sent.join(" & ")} sent for eSign. Signing order: ${signerSummary}`,
+      note: `${outcome.sent.join(" & ")} sent for eSign. Signing order: ${esignSend.signerSummary(signers)}`,
     });
     await connection.save();
     ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: connection._id });
-    logger.info("Documents sent for eSign", { opportunityId: connection.opportunityId, documents: sent, by: req.user._id });
+    logger.info("Documents sent for eSign", { opportunityId: connection.opportunityId, documents: outcome.sent, by: req.user._id });
   }
-
-  if (failure) {
-    const prefix = sent.length > 0 ? `${sent.join(" & ")} sent, but ` : "";
-    return next(new AppError(`${prefix}${failure.docType} could not be sent for eSign: ${failure.message}`, 502));
-  }
+  if (outcome.failure) return next(esignSend.failureError(outcome));
 
   res.status(200).json({
     success: true,
-    message: signers.length > 1
-      ? `${sent.join(" & ")} sent for eSign to ${signers.length} signers; ${signers[0].email} signs first`
-      : `${sent.join(" & ")} sent for eSign to ${signers[0].email}`,
+    message: esignSend.successMessage(outcome.sent, signers),
+    esignRequests: connection.esignRequests,
+  });
+});
+
+// Sends the RMACD form of the connection's current upgrade / downgrade / shifting request for eSign.
+// Like the manual upload, only until that request is approved.
+const sendRmacdForEsign = asyncHandler(async (req, res, next) => {
+  if (!ehastakshar.isConfigured()) return next(esignSend.notConfiguredError());
+
+  const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
+  if (!connection) return next(new AppError("Connection not found", 404));
+
+  const customer = await Customer.findById(connection.customer);
+  if (req.user.role === ROLES.EMPLOYEE && !customer?.managedBy.equals(req.user._id)) {
+    return next(new AppError("You can only send documents for your own customers", 403));
+  }
+
+  const { form } = currentRmacdForm(connection);
+  if (!form?.unsigned?.url) {
+    return next(new AppError("There is no pending upgrade, downgrade or shifting request with an RMACD form", 400));
+  }
+  if (!isRmacdFormOpen(connection, form)) {
+    return next(new AppError("The RMACD can no longer be signed once the request has been approved", 400));
+  }
+  if (form.signed?.url) return next(new AppError("The signed RMACD for this request is already here", 400));
+
+  const { signers, error } = esignSend.parseSigners(req.body);
+  if (error) return next(error);
+
+  const outcome = await esignSend.sendDocuments({
+    documents: [{
+      docType: "RMACD",
+      generated: form.unsigned,
+      title: `RMACD (${form.requestType}) - ${customer?.name || ""} - ${connection.opportunityId}`,
+      fallbackName: `RMACD_${form.requestType}_${connection.opportunityId}.pdf`,
+      extra: { rmacdFormId: form._id },
+    }],
+    signers,
+    sentBy: req.user._id,
+    logRef: connection.opportunityId,
+  });
+  if (outcome.failure) return next(esignSend.failureError(outcome));
+
+  connection.esignRequests.push(...outcome.requests);
+  connection.history.push({
+    action: "ESIGN_SENT",
+    performedBy: req.user._id,
+    date: new Date(),
+    note: `RMACD (${form.requestType}) sent for eSign. Signing order: ${esignSend.signerSummary(signers)}`,
+  });
+  await connection.save();
+  ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: connection._id });
+  logger.info("RMACD sent for eSign", { opportunityId: connection.opportunityId, requestType: form.requestType, by: req.user._id });
+
+  res.status(200).json({
+    success: true,
+    message: esignSend.successMessage(["RMACD"], signers),
     esignRequests: connection.esignRequests,
   });
 });
@@ -2099,15 +2094,13 @@ const uploadSignedRmacd = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const { entry, form } = currentRmacdForm(connection);
+  const { form } = currentRmacdForm(connection);
   if (!form) {
     return next(new AppError("There is no pending upgrade, downgrade or shifting request that needs an RMACD form", 400));
   }
 
   // Replaceable until this request is approved.
-  const entryIndex = connection.history.indexOf(entry);
-  const approvedSince = connection.history.slice(entryIndex + 1).some((h) => ["APPROVED", "ACTIVATED"].includes(h.action));
-  if (!["Pending", "Rejected"].includes(connection.status) || approvedSince) {
+  if (!isRmacdFormOpen(connection, form)) {
     return next(new AppError("The signed RMACD can no longer be changed once the request has been approved", 400));
   }
 
@@ -2152,6 +2145,7 @@ module.exports = {
   uploadSignedRmacd,
   uploadSignedDocuments,
   sendForEsign,
+  sendRmacdForEsign,
   updateTopology,
   updateTelcoCircuitId,
   createConnection,

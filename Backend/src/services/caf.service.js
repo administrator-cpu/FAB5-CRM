@@ -55,7 +55,12 @@ const createGeneratedBulkCaf = async ({ batchNumber, customer, billing, connecti
     "crm/connections/cafs",
   );
 
-  return { fileName: documentFileName(customer.name, batchNumber, "CAF"), ...uploaded };
+  return {
+    fileName: documentFileName(customer.name, batchNumber, "CAF"),
+    ...uploaded,
+    pageCount: pdf.pageCount,
+    signatureBoxes: pdf.signatureBoxes,
+  };
 };
 
 module.exports = { createGeneratedCaf, createGeneratedBulkCaf };

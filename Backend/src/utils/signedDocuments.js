@@ -33,4 +33,27 @@ const applySignedDocuments = (connection, { caf, po }) => {
   return labels;
 };
 
-module.exports = { hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments };
+const RMACD_REQUEST_TYPES = ["UPGRADE", "DOWNGRADE", "SHIFTING"];
+const REQUEST_ACTIONS = ["CREATED", "UPGRADE", "DOWNGRADE", "SHIFTING", "RATE_REVISION", "IP_ADDITION"];
+
+// The connection's current request entry and its RMACD form. form is null for request types without an
+// RMACD, and for requests raised before RMACD forms existed (those stay approvable as before).
+const currentRmacdForm = (connection) => {
+  const entry = [...connection.history].reverse().find((h) => REQUEST_ACTIONS.includes(h.action));
+  if (!entry || !RMACD_REQUEST_TYPES.includes(entry.action)) return { entry, form: null };
+  const form = connection.rmacdForms.find((f) => String(f.historyEntryId) === String(entry._id));
+  return { entry, form: form || null };
+};
+
+// A signed RMACD can be added / replaced only for the current request, until that request is approved.
+const isRmacdFormOpen = (connection, form) => {
+  const { entry, form: current } = currentRmacdForm(connection);
+  if (!form || !current || String(current._id) !== String(form._id)) return false;
+  const entryIndex = connection.history.indexOf(entry);
+  const approvedSince = connection.history.slice(entryIndex + 1).some((h) => ["APPROVED", "ACTIVATED"].includes(h.action));
+  return ["Pending", "Rejected"].includes(connection.status) && !approvedSince;
+};
+
+module.exports = {
+  hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments, currentRmacdForm, isRmacdFormOpen,
+};

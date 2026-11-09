@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { SignatureBoxSchema, EsignRequestSchema } = require("./esignRequest.schema");
 
 const documentFields = {
   fileName: String,
@@ -6,7 +7,12 @@ const documentFields = {
   publicId: String,
   storage: { type: String, enum: ["cloudinary", "local"] },
 };
-const GeneratedDocumentSchema = new mongoose.Schema(documentFields, { _id: false });
+// pageCount / signatureBoxes place the eSign stamps on the batch PDF's signature lines.
+const GeneratedDocumentSchema = new mongoose.Schema({
+  ...documentFields,
+  pageCount: Number,
+  signatureBoxes: [SignatureBoxSchema],
+}, { _id: false });
 const SignedDocumentSchema = new mongoose.Schema({
   ...documentFields,
   uploadedAt: Date,
@@ -29,10 +35,14 @@ const BulkBatchSchema = new mongoose.Schema(
       po: { type: SignedDocumentSchema, default: undefined },
       caf: { type: SignedDocumentSchema, default: undefined },
     },
+    // eSign requests for the batch CAF / PO; once signed, the copy goes to every unapproved connection.
+    esignRequests: [EsignRequestSchema],
   },
   { timestamps: true },
 );
 
 BulkBatchSchema.index({ customer: 1, createdAt: -1 });
+// e-Hastakshar's callback finds the batch by the documentId it returned when we sent the PDF.
+BulkBatchSchema.index({ "esignRequests.documentId": 1 }, { sparse: true });
 
 module.exports = mongoose.model("BulkBatch", BulkBatchSchema);

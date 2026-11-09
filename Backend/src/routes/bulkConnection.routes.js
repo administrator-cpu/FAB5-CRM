@@ -6,7 +6,7 @@ const { updateDashboardMetricsPostResponse } = require("../middlewares/realtimeM
 const {
   downloadTemplate, uploadBulkConnections, createBulkConnections,
   activeBulkConnectionTemplate, previewActiveBulkConnections, commitActiveBulkConnections,
-  getCustomerBulkBatches, uploadBulkSignedDocuments,
+  getCustomerBulkBatches, uploadBulkSignedDocuments, sendBatchForEsign,
 } = require("../controllers/bulkConnection.controller");
 
 const router = express.Router();
@@ -32,6 +32,8 @@ router.patch(
   upload.fields([{ name: "caf", maxCount: 1 }, { name: "purchaseOrder", maxCount: 1 }]),
   uploadBulkSignedDocuments
 );
+// Sends the batch CAF / PO for eSign; the signed copies are applied to the batch by the e-Hastakshar callback.
+router.post("/batches/:batchId/esign", protect, updateDashboardMetricsPostResponse, authorize(ROLES.EMPLOYEE, ROLES.ADMIN), sendBatchForEsign);
 router.get(
   "/bulk-template",
   protect,

@@ -13,15 +13,26 @@ const MAX_ATTEMPTS = 3;
 const STAMP = { width: 140, height: 70 };
 const STAMP_GAP = 10;
 const DEFAULT_SPOT = { pctX: 0.72, pctY: 0.86 };
-// Signers stand side by side, right to left, so this many fit along a signature line.
+// e-Hastakshar clamps pctX to 0.04..0.72, so a stamp's left edge must stay inside that band.
+const X_RANGE = { min: 0.04 * PAGE.width, max: 0.72 * PAGE.width };
+// Signers stand side by side on the signature line, so this many fit across the page.
 const MAX_SIGNERS = 3;
 
 const round = (value) => Math.round(value * 10000) / 10000;
 
+// Left edges for each signer's stamp in a row that starts at firstX: signer 1 at firstX, then one
+// stamp further left each time, or further right once the left side runs out of page.
+const rowSlots = (firstX) => {
+  const step = STAMP.width + STAMP_GAP;
+  const candidates = [firstX];
+  for (let i = 1; candidates.length < 2 * MAX_SIGNERS + 1; i++) candidates.push(firstX - i * step, firstX + i * step);
+  return candidates.filter((x) => x >= X_RANGE.min && x <= X_RANGE.max).slice(0, MAX_SIGNERS);
+};
+
 /**
  * Stamp positions for one signer: on pages with one of our signature lines the stamp sits on that
- * line; every other page keeps the default bottom-right spot. Signer 1 is right-most and each next
- * signer moves one stamp to the left, so stamps never cover each other.
+ * line; every other page keeps the default bottom-right spot. Signers sit side by side (see rowSlots),
+ * so stamps never cover each other.
  * @param {{signatureBoxes?: {page:number,x:number,y:number,width:number}[], pageCount?: number}} layout
  *   recorded when the PDF was generated (PDFs generated before this have neither: default placement).
  * @param {number} signerIndex - 0-based signing order
@@ -31,16 +42,16 @@ const signaturePositions = (layout, signerIndex) => {
   const pageCount = layout?.pageCount || 0;
   if (!boxes.length || !pageCount) return [];
 
-  const shift = signerIndex * (STAMP.width + STAMP_GAP);
   const positions = [];
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
     const box = boxes.find((b) => b.page === pageNumber);
     if (box) {
-      const x = box.x + (box.width - STAMP.width) / 2 - shift;
+      const x = rowSlots(box.x + (box.width - STAMP.width) / 2)[signerIndex];
       const y = box.y - STAMP.height - 4;
       positions.push({ pageNumber, pctX: round(x / PAGE.width), pctY: round(y / PAGE.height) });
     } else if (signerIndex > 0) {
-      positions.push({ pageNumber, pctX: round(DEFAULT_SPOT.pctX - shift / PAGE.width), pctY: DEFAULT_SPOT.pctY });
+      const x = rowSlots(DEFAULT_SPOT.pctX * PAGE.width)[signerIndex];
+      positions.push({ pageNumber, pctX: round(x / PAGE.width), pctY: DEFAULT_SPOT.pctY });
     }
   }
   return positions;
@@ -108,7 +119,8 @@ const sendForSigning = async ({ pdf, fileName, title, docType, signers: signerLi
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       logger.error("e-Hastakshar send failed", { status: response.status, docType, response: data });
-      const error = new Error(data.message || `e-Hastakshar returned ${response.status}`);
+      // Their own message, prefixed so it's clear it came from e-Hastakshar and with which status.
+      const error = new Error(`e-Hastakshar returned ${response.status}${data.message ? `: ${data.message}` : ""}`);
       error.statusCode = response.status;
       throw error;
     }
