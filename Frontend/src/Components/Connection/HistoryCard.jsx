@@ -159,7 +159,8 @@ function OpportunityDetails() {
   const renderDocCard = (label, doc) => {
     if (!doc || !doc.url) return null;
     // Signed copies that came back from e-Hastakshar rather than a manual upload.
-    const esigned = (data?.esignRequests || []).some((request) => request.signedDocument?.url === doc.url);
+    const esigned = (data?.esignRequests || []).some((request) => request.signedDocument?.url === doc.url
+      || (request.parts || []).some((part) => part.signedDocument?.url === doc.url));
     return (
       <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg shadow-sm">
         <div className="flex items-center gap-3 overflow-hidden">

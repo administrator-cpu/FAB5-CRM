@@ -1993,12 +1993,13 @@ const sendForEsign = asyncHandler(async (req, res, next) => {
   }
 
   const outcome = await esignSend.sendDocuments({
-    documents: docTypes.map((docType) => ({
-      docType,
-      generated: connection.generatedDocuments[docType.toLowerCase()],
-      title: `${docType} - ${customer?.name || ""} - ${connection.opportunityId}`,
-      fallbackName: `${docType}_${connection.opportunityId}.pdf`,
-    })),
+    // Both unsigned: sent as one combined CAF & PO PDF, so the customer signs once.
+    documents: esignSend.cafPoDocuments({
+      docTypes,
+      generatedOf: (docType) => connection.generatedDocuments[docType.toLowerCase()],
+      customerName: customer?.name,
+      ref: connection.opportunityId,
+    }),
     signers,
     sentBy: req.user._id,
     logRef: connection.opportunityId,

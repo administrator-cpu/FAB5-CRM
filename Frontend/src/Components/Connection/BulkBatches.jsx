@@ -56,8 +56,9 @@ const BatchCard = ({ batch, canManage, defaultSigner, onUpdated }) => {
   const canUpload = canManage && openCount > 0;
 
   // Latest eSign request per batch document (requests are stored oldest first).
+  // A combined CAF & PO request (CAF_PO, one document for the customer) counts for both.
   const latestEsign = (docType) =>
-    [...(batch.esignRequests || [])].reverse().find((r) => r.docType === docType) || null;
+    [...(batch.esignRequests || [])].reverse().find((r) => r.docType === docType || r.docType === "CAF_PO") || null;
   const esignCaf = canManage ? latestEsign("CAF") : null;
   const esignPo = canManage ? latestEsign("PO") : null;
   const unsignedDocs = [!batch.signedDocuments?.caf?.url && "CAF", !batch.signedDocuments?.po?.url && "PO"].filter(Boolean);
@@ -122,7 +123,7 @@ const BatchCard = ({ batch, canManage, defaultSigner, onUpdated }) => {
         <EsignSignerForm
           defaultSigner={defaultSigner}
           sendLabel={unsentDocs.length > 0 ? `Send ${unsentDocs.join(" & ")} for eSign` : "Send again"}
-          description={`Once everyone has signed, the signed copies are added to the ${openCount} unapproved connection${openCount === 1 ? "" : "s"} of this batch automatically.`}
+          description={`${unsentDocs.length === 2 ? "The CAF and PO go as one document, so each signer signs once. " : ""}Once everyone has signed, the signed copies are added to the ${openCount} unapproved connection${openCount === 1 ? "" : "s"} of this batch automatically.`}
           onSend={handleSendEsign}
         />
       )}

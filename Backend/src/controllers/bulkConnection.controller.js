@@ -606,12 +606,14 @@ const sendBatchForEsign = asyncHandler(async (req, res, next) => {
   if (docTypes.length === 0) return next(new AppError("There is no unsigned CAF or PO to send for this batch", 400));
 
   const outcome = await esignSend.sendDocuments({
-    documents: docTypes.map((docType) => ({
-      docType,
-      generated: batch.generatedDocuments[docType.toLowerCase()],
-      title: `${docType} - ${customer?.name || ""} - ${batch.batchNumber} (${connections.length} links)`,
-      fallbackName: `${docType}_${batch.batchNumber}.pdf`,
-    })),
+    // Both unsigned: sent as one combined CAF & PO PDF, so the customer signs once.
+    documents: esignSend.cafPoDocuments({
+      docTypes,
+      generatedOf: (docType) => batch.generatedDocuments[docType.toLowerCase()],
+      customerName: customer?.name,
+      ref: batch.batchNumber,
+      titleSuffix: ` (${connections.length} links)`,
+    }),
     signers,
     sentBy: req.user._id,
     logRef: batch.batchNumber,

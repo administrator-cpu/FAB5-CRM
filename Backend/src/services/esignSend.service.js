@@ -1,6 +1,7 @@
 const ehastakshar = require("./ehastakshar.service");
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
+const { combinePdfs } = require("../utils/pdfCombine");
 
 // Shared by every "Send for eSign" endpoint (new connection CAF / PO, RMACD form, bulk batch CAF / PO).
 
@@ -38,32 +39,79 @@ const signerSummary = (signers) =>
   signers.map((signer, index) => `${index + 1}. ${signer.name} (${signer.email})`).join(", ");
 
 /**
+ * The documents to send for an order's unsigned CAF / PO: when both are unsigned they go as one
+ * combined CAF_PO document (CAF pages first), so the customer gets one email and signs once.
+ * @param {object} params
+ * @param {("CAF"|"PO")[]} params.docTypes - the unsigned documents to send
+ * @param {(docType: string) => object} params.generatedOf - stored unsigned PDF of a document
+ * @param {string} params.customerName
+ * @param {string} params.ref - opportunity id / batch number
+ * @param {string} [params.titleSuffix]
+ */
+const cafPoDocuments = ({ docTypes, generatedOf, customerName, ref, titleSuffix = "" }) => {
+  const title = (label) => `${label} - ${customerName || ""} - ${ref}${titleSuffix}`;
+  if (docTypes.includes("CAF") && docTypes.includes("PO")) {
+    return [{
+      docType: "CAF_PO",
+      components: ["CAF", "PO"].map((docType) => ({ docType, generated: generatedOf(docType) })),
+      title: title("CAF & PO"),
+      fallbackName: `CAF_PO_${ref}.pdf`,
+    }];
+  }
+  return docTypes.map((docType) => ({
+    docType,
+    generated: generatedOf(docType),
+    title: title(docType),
+    fallbackName: `${docType}_${ref}.pdf`,
+  }));
+};
+
+// Labels for messages / history: CAF_PO counts as "CAF" and "PO".
+const docLabels = (docType) => (docType === "CAF_PO" ? ["CAF", "PO"] : [docType]);
+
+// The PDF, stamp layout and (for combined documents) parts to send for one document entry.
+const preparePdf = async ({ generated, components }) => {
+  if (!components) {
+    return { pdf: await ehastakshar.readStoredDocument(generated), layout: generated, fileName: generated.fileName };
+  }
+  const combined = await combinePdfs(await Promise.all(components.map(async ({ docType, generated: doc }) => ({
+    docType,
+    pdf: await ehastakshar.readStoredDocument(doc),
+    layout: doc,
+  }))));
+  return { ...combined, fileName: null };
+};
+
+/**
  * Sends documents one at a time; stops at the first failure, keeping the requests already sent.
  * @param {object} params
- * @param {{docType: "CAF"|"PO"|"RMACD", generated: object, title: string, fallbackName: string, extra?: object}[]} params.documents
- *   generated is the stored unsigned PDF (with its pageCount / signatureBoxes); extra is merged into the request.
+ * @param {object[]} params.documents - { docType, generated, title, fallbackName, extra? } for one stored PDF
+ *   (generated carries its pageCount / signatureBoxes), or { docType: "CAF_PO", components, title, fallbackName }
+ *   from cafPoDocuments for a combined one; extra is merged into the request.
  * @param {{name: string, email: string}[]} params.signers
  * @param {*} params.sentBy - user id
  * @param {string} params.logRef - opportunity / batch number for logs
  * @returns {Promise<{requests: object[], sent: string[], failure: {docType: string, message: string}|null}>}
- *   requests are ready to push onto an esignRequests array.
+ *   requests are ready to push onto an esignRequests array; sent lists "CAF" / "PO" / "RMACD".
  */
 const sendDocuments = async ({ documents, signers, sentBy, logRef }) => {
   const requests = [];
   const sent = [];
-  for (const { docType, generated, title, fallbackName, extra } of documents) {
+  for (const document of documents) {
+    const { docType, title, fallbackName, extra } = document;
     try {
-      const pdf = await ehastakshar.readStoredDocument(generated);
+      const { pdf, layout, parts, fileName } = await preparePdf(document);
       const result = await ehastakshar.sendForSigning({
         pdf,
-        fileName: generated.fileName || fallbackName,
+        fileName: fileName || fallbackName,
         title,
         docType,
         signers,
-        layout: generated,
+        layout,
       });
       requests.push({
         docType,
+        ...(parts && { parts }),
         ...extra,
         documentId: result.documentId,
         transactionId: result.transactionId,
@@ -78,10 +126,10 @@ const sendDocuments = async ({ documents, signers, sentBy, logRef }) => {
         sentBy,
         sentAt: new Date(),
       });
-      sent.push(docType);
+      sent.push(...docLabels(docType));
     } catch (error) {
       logger.error("eSign send failed", { ref: logRef, docType, error: error.message });
-      return { requests, sent, failure: { docType, message: error.message } };
+      return { requests, sent, failure: { docType: docLabels(docType).join(" & "), message: error.message } };
     }
   }
   return { requests, sent, failure: null };
@@ -99,4 +147,6 @@ const successMessage = (sent, signers) => (signers.length > 1
 
 const notConfiguredError = () => new AppError("eSign is not set up yet (EHASTAKSHAR_API_KEY is missing)", 503);
 
-module.exports = { parseSigners, signerSummary, sendDocuments, failureError, successMessage, notConfiguredError };
+module.exports = {
+  parseSigners, signerSummary, cafPoDocuments, sendDocuments, failureError, successMessage, notConfiguredError,
+};
