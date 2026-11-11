@@ -12,7 +12,23 @@ const SignatureBoxSchema = new mongoose.Schema({
 // One document sent to e-Hastakshar for signing (on a connection or a bulk batch), newest last.
 // Sending a document again adds a new entry.
 const EsignRequestSchema = new mongoose.Schema({
-  docType: { type: String, enum: ["CAF", "PO", "RMACD"], required: true },
+  // CAF_PO: the CAF and PO joined into one PDF so the customer signs once (see parts).
+  docType: { type: String, enum: ["CAF", "PO", "RMACD", "CAF_PO"], required: true },
+  // CAF_PO only: where each document sits in the combined PDF, and its signed copy once split back out.
+  parts: [
+    {
+      _id: false,
+      docType: { type: String, enum: ["CAF", "PO"] },
+      fromPage: Number,
+      pageCount: Number,
+      signedDocument: {
+        fileName: String,
+        url: String,
+        publicId: String,
+        storage: { type: String, enum: ["cloudinary", "local"] },
+      },
+    },
+  ],
   // RMACD requests: the rmacdForms entry this was sent for.
   rmacdFormId: { type: mongoose.Schema.Types.ObjectId },
   provider: { type: String, default: "ehastakshar" },

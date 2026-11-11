@@ -78,8 +78,10 @@ const SigningDocuments = ({ connection, user, onUploaded }) => {
   const pending = !signedCaf || !signedPo;
 
   // Latest eSign request per document (newest is last in the array).
+  // A combined CAF & PO request (CAF_PO, one document for the customer) counts for both rows.
   const latestEsign = (docType) =>
-    [...(connection.esignRequests || [])].reverse().find((request) => request.docType === docType) || null;
+    [...(connection.esignRequests || [])].reverse()
+      .find((request) => request.docType === docType || request.docType === "CAF_PO") || null;
   const esignCaf = latestEsign("CAF");
   const esignPo = latestEsign("PO");
   // eSign covers new single orders only for now (not bulk batches or modifications).
@@ -158,7 +160,9 @@ const SigningDocuments = ({ connection, user, onUploaded }) => {
           <EsignSignerForm
             defaultSigner={{ name: connection.customer?.person, email: connection.customer?.email }}
             sendLabel={unsentDocs.length > 0 ? `Send ${unsentDocs.join(" & ")} for eSign` : "Send again"}
-            description="Once everyone has signed, the signed copies are saved here automatically."
+            description={unsentDocs.length === 2
+              ? "The CAF and PO go as one document, so each signer signs once. Once everyone has signed, the signed copies are saved here automatically."
+              : "Once everyone has signed, the signed copies are saved here automatically."}
             onSend={handleSendEsign}
           />
         </div>
