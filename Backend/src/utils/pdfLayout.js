@@ -269,9 +269,33 @@ const signatureCaption = (doc, text) => {
   doc.y += 4;
 };
 
+// ─────────── Watermark ───────────
+// Faint diagonal company name across the middle of every generated page (also used by the PO
+// stamped onto a template in documentGenerators).
+const WATERMARK = { text: "Fab Five Network Pvt. Ltd.", fontSize: 46, opacity: 0.1, angle: -45 };
+
+const stampWatermark = (doc) => {
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    // Drawn on top of the content, so the margin is lifted to keep pdfkit from adding a page.
+    const bottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    doc.save();
+    doc.rotate(WATERMARK.angle, { origin: [PAGE.width / 2, PAGE.height / 2] });
+    doc.font(FONT.bold).fontSize(WATERMARK.fontSize).fillColor(COLORS.text).fillOpacity(WATERMARK.opacity);
+    // Wider than the page: the rotated line runs corner to corner.
+    doc.text(WATERMARK.text, -PAGE.width / 2, PAGE.height / 2 - WATERMARK.fontSize / 2, {
+      width: PAGE.width * 2, align: "center", lineBreak: false,
+    });
+    doc.restore();
+    doc.page.margins.bottom = bottom;
+  }
+};
+
 // ─────────── Document wrapper ───────────
-// Creates an A4 document, runs draw(doc) and resolves with the PDF bytes. The Buffer also carries
-// pageCount and signatureBoxes (see signatureCaption), used to place eSign stamps.
+// Creates an A4 document, runs draw(doc), watermarks every page and resolves with the PDF bytes.
+// The Buffer also carries pageCount and signatureBoxes (see signatureCaption), used to place eSign stamps.
 const renderPdf = ({ title, subject, margins = MARGIN }, draw) => new Promise((resolve, reject) => {
   try {
     const doc = new PDFDocument({
@@ -293,6 +317,7 @@ const renderPdf = ({ title, subject, margins = MARGIN }, draw) => new Promise((r
     doc.on("error", reject);
 
     draw(doc);
+    stampWatermark(doc);
     pageCount = doc.bufferedPageRange().count;
     doc.end();
   } catch (error) {
@@ -306,5 +331,6 @@ module.exports = {
   brandGradient, gradientText, gradientHeading,
   drawHeader, stampHeadersAndFooters,
   bottomLimit, ensureSpace, sectionBar, detailRows, gridTable, writeRuns, signRow, signatureCaption, SIGNATURE_SPACE,
+  WATERMARK,
   renderPdf,
 };

@@ -1,5 +1,6 @@
 const ExcelJS = require("exceljs");
-const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+const { PDFDocument, StandardFonts, rgb, degrees } = require("pdf-lib");
+const { WATERMARK } = require("./pdfLayout");
 const fs = require("fs").promises;
 const path = require("path");
 const PoCounter = require("../models/poCounter.model");
@@ -89,6 +90,23 @@ const generatePoPdf = async (templatePath, poNumber) => {
   firstPage.drawText(poNumber, { x: 432, y: 730, size: fontSize, font: boldFont, color: textColor });
   firstPage.drawText(dateStr, { x: 432, y: 715.5, size: fontSize, font: boldFont, color: textColor });
   firstPage.drawText(cndStr, { x: 194, y: 467, size: fontSize, font: boldFont, color: textColor });
+
+  // Same faint diagonal company name as the other generated documents, centred on every page.
+  const angle = Math.abs(WATERMARK.angle);
+  const textWidth = boldFont.widthOfTextAtSize(WATERMARK.text, WATERMARK.fontSize);
+  const rad = (angle * Math.PI) / 180;
+  for (const page of pdfDoc.getPages()) {
+    const { width, height } = page.getSize();
+    page.drawText(WATERMARK.text, {
+      x: width / 2 - (textWidth / 2) * Math.cos(rad) + (WATERMARK.fontSize / 3) * Math.sin(rad),
+      y: height / 2 - (textWidth / 2) * Math.sin(rad) - (WATERMARK.fontSize / 3) * Math.cos(rad),
+      size: WATERMARK.fontSize,
+      font: boldFont,
+      color: rgb(0.12, 0.12, 0.12),
+      opacity: WATERMARK.opacity,
+      rotate: degrees(angle),
+    });
+  }
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
