@@ -22,7 +22,7 @@ const { canAccessCustomer } = require('../utils/access');
 const singleBillingProfileId = (customer) =>
   customer?.billingProfile?.length === 1 ? customer.billingProfile[0]._id : null;
 const ioHelper = require('../utils/ioHelper');
-const ehastakshar = require('../services/ehastakshar.service');
+const divsign = require('../services/divsign.service');
 const esignSend = require('../services/esignSend.service');
 
 const withCreatedBy = async (connectionId) => {
@@ -576,10 +576,10 @@ const uploadBulkSignedDocuments = asyncHandler(async (req, res, next) => {
   });
 });
 
-// Sends the batch CAF and/or PO for eSign once; when signed, the e-Hastakshar callback adds the
+// Sends the batch CAF and/or PO for eSign once; when signed, the DIVSign callback adds the
 // signed copies to every connection of the batch that hasn't been approved (like the upload above).
 const sendBatchForEsign = asyncHandler(async (req, res, next) => {
-  if (!ehastakshar.isConfigured()) return next(esignSend.notConfiguredError());
+  if (!divsign.isConfigured()) return next(esignSend.notConfiguredError());
 
   const batch = await BulkBatch.findById(req.params.batchId);
   if (!batch) return next(new AppError("Bulk batch not found", 404));

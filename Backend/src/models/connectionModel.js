@@ -208,7 +208,7 @@ const ConnectionSchema = new mongoose.Schema(
         signatureBoxes: [SignatureBoxSchema],
       },
     },
-    // eSign requests sent to e-Hastakshar for the generated CAF / PO and RMACD forms, newest last.
+    // eSign requests sent to DIVSign for the generated CAF / PO and RMACD forms, newest last.
     esignRequests: [EsignRequestSchema],
     // RMACD (Charge Deviation Form) per upgrade / downgrade / shifting request: generated unsigned,
     // then the customer-signed copy is uploaded. historyEntryId links it to the request's history entry.
@@ -292,7 +292,7 @@ ConnectionSchema.index({ customer: 1 });
 ConnectionSchema.index({ bulkBatch: 1 }, { partialFilterExpression: { bulkBatch: { $type: "objectId" } } });
 ConnectionSchema.index({ status: 1 });
 ConnectionSchema.index({ createdBy: 1 });
-// e-Hastakshar's callback finds the connection by the documentId it returned when we sent the PDF.
+// DIVSign's callback finds the connection by the documentId it returned when we sent the PDF.
 ConnectionSchema.index({ "esignRequests.documentId": 1 }, { sparse: true });
 ConnectionSchema.index({ createdAt: -1 });
 // Incremental sync (Ledgerly) pages by (updatedAt, _id).
