@@ -42,7 +42,7 @@ const BulkBatchSchema = new mongoose.Schema(
 );
 
 BulkBatchSchema.index({ customer: 1, createdAt: -1 });
-// DIVSign's callback finds the batch by the documentId it returned when we sent the PDF.
+// e-Hastakshar's callback finds the batch by the documentId it returned when we sent the PDF.
 BulkBatchSchema.index({ "esignRequests.documentId": 1 }, { sparse: true });
 
 module.exports = mongoose.model("BulkBatch", BulkBatchSchema);

@@ -3,7 +3,6 @@ const mongoose = require("mongoose");
 const Connection = require("../models/connectionModel");
 const BulkBatch = require("../models/bulkBatch.model");
 const { uploadDocument } = require("../services/upload.service");
-const divsign = require("../services/divsign.service");
 const { splitPdf } = require("../utils/pdfCombine");
 const {
   areSignedDocumentsLocked, applySignedDocuments, hasSignedDocuments, isRmacdFormOpen,
@@ -13,7 +12,7 @@ const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 const ioHelper = require("../utils/ioHelper.js");
 
-// Statuses DIVSign may report. COMPLETED (every signer has signed) must come with the signed PDF.
+// Statuses e-Hastakshar may report. COMPLETED (every signer has signed) must come with the signed PDF.
 const COMPLETED_STATUSES = ["COMPLETED", "SIGNED"];
 const OTHER_STATUSES = ["DECLINED", "EXPIRED", "CANCELLED"];
 
@@ -25,9 +24,9 @@ const SAVE_ATTEMPTS = 3;
 // Deleted and cancelled connections of a batch no longer need signed documents.
 const LIVE_BATCH_CONNECTION = { $nin: ["Deleted", "Cancelled"] };
 
-// Shared secret DIVSign sends as "Authorization: Bearer <DIVSIGN_WEBHOOK_SECRET>".
-const verifyDivsign = (req, res, next) => {
-  const expected = divsign.setting("WEBHOOK_SECRET");
+// Shared secret e-Hastakshar sends as "Authorization: Bearer <EHASTAKSHAR_WEBHOOK_SECRET>".
+const verifyEhastakshar = (req, res, next) => {
+  const expected = process.env.EHASTAKSHAR_WEBHOOK_SECRET;
   if (!expected) return next(new AppError("eSign callback is not configured", 503));
 
   const header = req.headers.authorization || "";
@@ -100,7 +99,7 @@ const applyToConnection = async (documentId, outcome) => {
         conn.history.push({
           action: "ESIGN_UPDATED",
           date: new Date(),
-          note: `DIVSign reported the ${label} eSign request as ${outcome.status.toLowerCase()}`,
+          note: `e-Hastakshar reported the ${label} eSign request as ${outcome.status.toLowerCase()}`,
         });
         return true;
       }
@@ -110,7 +109,7 @@ const applyToConnection = async (documentId, outcome) => {
         conn.history.push({
           action: "ESIGN_COMPLETED",
           date: new Date(),
-          note: `Signed ${label} received from DIVSign, but it has fewer pages than were sent, so it couldn't be split into the CAF and PO. Upload the signed copies by hand.`,
+          note: `Signed ${label} received from e-Hastakshar, but it has fewer pages than were sent, so it couldn't be split into the CAF and PO. Upload the signed copies by hand.`,
         });
         return true;
       }
@@ -127,8 +126,8 @@ const applyToConnection = async (documentId, outcome) => {
         action: "ESIGN_COMPLETED",
         date: new Date(),
         note: result.applied
-          ? `Signed ${label} received from DIVSign`
-          : `Signed ${label} received from DIVSign after it could no longer change; kept on the eSign request only`,
+          ? `Signed ${label} received from e-Hastakshar`
+          : `Signed ${label} received from e-Hastakshar after it could no longer change; kept on the eSign request only`,
       });
       return true;
     },
@@ -173,7 +172,7 @@ const applyToBatch = async (documentId, outcome) => {
         conn.history.push({
           action: "ESIGN_COMPLETED",
           date: new Date(),
-          note: `Signed ${labels.join(" & ")} received from DIVSign for bulk batch ${batch.batchNumber}`,
+          note: `Signed ${labels.join(" & ")} received from e-Hastakshar for bulk batch ${batch.batchNumber}`,
         });
         return true;
       },
@@ -184,9 +183,9 @@ const applyToBatch = async (documentId, outcome) => {
   return { alreadyReceived, applied, skipped, docType: request.docType, batch };
 };
 
-// POST /api/esign/webhooks/ehastakshar: DIVSign calls this when a document we sent is fully
+// POST /api/esign/webhooks/ehastakshar: e-Hastakshar calls this when a document we sent is fully
 // signed (or declined / expired). The documentId says which connection / batch request it is.
-const divsignCallback = asyncHandler(async (req, res, next) => {
+const ehastaksharCallback = asyncHandler(async (req, res, next) => {
   const documentId = String(req.body.documentId || "").trim();
   if (!documentId) return next(new AppError("documentId is required", 400));
 
@@ -209,7 +208,7 @@ const divsignCallback = asyncHandler(async (req, res, next) => {
     return next(new AppError("transactionId does not match this documentId", 400));
   }
 
-  // DIVSign retries until it gets a 2xx, so a repeat of a finished request just succeeds.
+  // e-Hastakshar retries until it gets a 2xx, so a repeat of a finished request just succeeds.
   if (isFinished(request)) {
     return res.status(200).json({ success: true, message: "Already received", documentId, applied: false });
   }
@@ -294,4 +293,4 @@ const divsignCallback = asyncHandler(async (req, res, next) => {
   });
 });
 
-module.exports = { verifyDivsign, divsignCallback };
+module.exports = { verifyEhastakshar, ehastaksharCallback };
