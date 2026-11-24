@@ -249,7 +249,7 @@ const signRow = (doc, labels, { gapBefore = 18, signatureAt } = {}) => {
   doc.y = y + 24;
 };
 
-// Blank space above each signature line: room to sign by hand, or for e-Hastakshar's eSign stamp
+// Blank space above each signature line: room to sign by hand, or for DIVSign's eSign stamp
 // (about 140 × 70 pt) to sit on the line.
 const SIGNATURE_SPACE = 78;
 
