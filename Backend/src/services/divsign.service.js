@@ -2,16 +2,19 @@ const fs = require("fs/promises");
 const { STORAGE_DRIVERS, resolveLocalPath } = require("../config/storage");
 const { PAGE } = require("../utils/pdfLayout");
 const logger = require("../utils/logger");
+const { describeFetchError } = require("../utils/networkError");
 
 // DIVSign (formerly e-Hastakshar) machine API, see their CRM_API_INTEGRATION_GUIDE: one PDF + signers per request.
 
 // Settings are DIVSIGN_*; the old EHASTAKSHAR_* names still work until the servers' .env are renamed.
 const setting = (name) => process.env[`DIVSIGN_${name}`] || process.env[`EHASTAKSHAR_${name}`];
 
-// Set DIVSIGN_API_URL if their API host changes with the new name.
-const API_URL = (setting("API_URL") || "https://api.ehastakshar.in").replace(/\/+$/, "");
+// Their API moved to api.divsign.in with the rename; DIVSIGN_API_URL overrides it.
+const API_URL = (setting("API_URL") || "https://api.divsign.in").replace(/\/+$/, "");
 const SEND_PATH = "/api/v1/esign/send";
 const MAX_ATTEMPTS = 3;
+// A hung connection fails with a clear "timed out" instead of leaving the request waiting.
+const FETCH_TIMEOUT_MS = 60 * 1000;
 
 // DIVSign stamps every page; a page without a position gets the stamp at its default spot.
 // pctX / pctY are the stamp's top-left corner as a fraction of the page (0..1, from the top-left).
@@ -71,8 +74,18 @@ const readStoredDocument = async (document) => {
     if (!absPath) throw new Error("Stored document path is invalid");
     return fs.readFile(absPath);
   }
-  const response = await fetch(document.url);
-  if (!response.ok) throw new Error(`Could not fetch stored document (${response.status})`);
+  let response;
+  try {
+    response = await fetch(document.url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  } catch (error) {
+    const { host, code, reason } = describeFetchError(error, document.url);
+    logger.error("Could not download the stored PDF to send for eSign", { host, code, reason, url: document.url });
+    throw new Error(`couldn't download the stored PDF from ${host}: ${reason}`);
+  }
+  if (!response.ok) {
+    logger.error("Stored PDF download failed", { status: response.status, url: document.url });
+    throw new Error(`couldn't download the stored PDF (storage returned ${response.status})`);
+  }
   return Buffer.from(await response.arrayBuffer());
 };
 
@@ -109,11 +122,20 @@ const sendForSigning = async ({ pdf, fileName, title, docType, signers: signerLi
     // Where DIVSign posts the signed PDF once every signer is done (esignWebhook.controller).
     if (setting("CALLBACK_URL")) form.append("callbackUrl", setting("CALLBACK_URL"));
 
-    const response = await fetch(`${API_URL}${SEND_PATH}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${setting("API_KEY")}` },
-      body: form,
-    });
+    let response;
+    try {
+      response = await fetch(`${API_URL}${SEND_PATH}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${setting("API_KEY")}` },
+        body: form,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+    } catch (error) {
+      // Never reached DIVSign (DNS, refused, timeout, SSL…): say where and why instead of "fetch failed".
+      const { host, code, reason } = describeFetchError(error, API_URL);
+      logger.error("Could not reach DIVSign", { docType, host, code, reason, url: `${API_URL}${SEND_PATH}` });
+      throw new Error(`couldn't reach DIVSign at ${host}: ${reason}`);
+    }
 
     if (response.status === 429 && attempt < MAX_ATTEMPTS) {
       const waitSeconds = parseInt(response.headers.get("retry-after") || "1", 10) || 1;
@@ -123,7 +145,7 @@ const sendForSigning = async ({ pdf, fileName, title, docType, signers: signerLi
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      logger.error("DIVSign send failed", { status: response.status, docType, response: data });
+      logger.error("DIVSign rejected the document", { docType, status: response.status, reason: data.message || data.error, response: data });
       // Their own message, prefixed so it's clear it came from DIVSign and with which status.
       const error = new Error(`DIVSign returned ${response.status}${data.message ? `: ${data.message}` : ""}`);
       error.statusCode = response.status;

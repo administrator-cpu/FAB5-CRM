@@ -2015,7 +2015,7 @@ const sendForEsign = asyncHandler(async (req, res, next) => {
     });
     await connection.save();
     ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: connection._id });
-    logger.info("Documents sent for eSign", { opportunityId: connection.opportunityId, documents: outcome.sent, by: req.user._id });
+    logger.info("✓ Documents sent for eSign", { opportunityId: connection.opportunityId, documents: outcome.sent, by: req.user._id });
   }
   if (outcome.failure) return next(esignSend.failureError(outcome));
 
@@ -2074,7 +2074,7 @@ const sendRmacdForEsign = asyncHandler(async (req, res, next) => {
   });
   await connection.save();
   ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: connection._id });
-  logger.info("RMACD sent for eSign", { opportunityId: connection.opportunityId, requestType: form.requestType, by: req.user._id });
+  logger.info("✓ RMACD sent for eSign", { opportunityId: connection.opportunityId, requestType: form.requestType, by: req.user._id });
 
   res.status(200).json({
     success: true,

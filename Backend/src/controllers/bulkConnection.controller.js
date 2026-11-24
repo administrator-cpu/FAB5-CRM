@@ -628,7 +628,7 @@ const sendBatchForEsign = asyncHandler(async (req, res, next) => {
       { $push: { history: { action: "ESIGN_SENT", performedBy: req.user._id, date: new Date(), note } } },
     );
     ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: batch._id });
-    logger.info("Bulk batch sent for eSign", { batchNumber: batch.batchNumber, documents: outcome.sent, by: req.user._id });
+    logger.info("✓ Bulk batch sent for eSign", { batchNumber: batch.batchNumber, documents: outcome.sent, by: req.user._id });
   }
   if (outcome.failure) return next(esignSend.failureError(outcome));
 

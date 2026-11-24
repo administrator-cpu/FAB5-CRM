@@ -259,7 +259,7 @@ const divsignCallback = asyncHandler(async (req, res, next) => {
     ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: result.connection._id });
     // Re-read so a CAF and PO arriving together both see each other's signed copy.
     const fresh = await Connection.findById(result.connection._id).select("caf purchaseOrders");
-    logger.info("eSign callback processed", { opportunityId: result.connection.opportunityId, documentId, docType: result.docType, status, applied: result.applied });
+    logger.info("✓ eSign callback processed", { opportunityId: result.connection.opportunityId, documentId, docType: result.docType, status, applied: result.applied });
     const label = LABELS[result.docType] || result.docType;
     return res.status(200).json({
       success: true,
@@ -278,7 +278,7 @@ const divsignCallback = asyncHandler(async (req, res, next) => {
     return res.status(200).json({ success: true, message: "Already received", documentId, applied: false });
   }
   ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: result.batch._id });
-  logger.info("eSign callback processed", { batchNumber: result.batch.batchNumber, documentId, docType: result.docType, status, applied: result.applied, skipped: result.skipped });
+  logger.info("✓ eSign callback processed", { batchNumber: result.batch.batchNumber, documentId, docType: result.docType, status, applied: result.applied, skipped: result.skipped });
   res.status(200).json({
     success: true,
     message: !completed

@@ -10,6 +10,7 @@ const crypto = require("crypto");
 const http = require("http");
 
 const logger = require("./utils/logger");
+const { requestContext } = require("./utils/requestContext");
 const AppError = require("./utils/AppError");
 const { UPLOAD_DIR, FILES_ROUTE } = require("./config/storage");
 const { globalLimiter } = require("./middlewares/rateLimiter");
@@ -102,6 +103,8 @@ app.use((req, res, next) => {
   res.setHeader("X-Request-ID", req.requestId);
   next();
 });
+// Every log line written while handling this request gets its route, IP, user and request id.
+app.use(requestContext);
 
 // ──────────────── Data Sanitization against NoSQL Injection ──────────────────────────────
 app.use(
@@ -113,23 +116,35 @@ app.use(
 );
 
 // ──────────────── HTTP Request Logging with Morgan ──────────────────────────────
+// One line per request whose level and label show the outcome at a glance:
+//   HTTP   ✓ OK      GET /api/dashboard -> 200 in 41 ms
+//   WARN   ! FAILED  POST /api/users/login -> 401 in 12 ms      (the request was refused: 4xx)
+//   ERROR  ✗ FAILED  POST /api/connection/…/esign -> 502 in 812 ms  (something broke: 5xx)
+const requestOutcome = (status) => {
+  if (status >= 500) return { level: "error", label: "✗ FAILED" };
+  if (status >= 400) return { level: "warn", label: "! FAILED" };
+  return { level: "http", label: "✓ OK" };
+};
 app.use(
-  morgan((tokens, req, res) =>
-    JSON.stringify({
-      type: "request",
-      timestamp: tokens.date(req, res, "iso"),
-      method: tokens.method(req, res),
-      url: tokens.url(req, res),
-      status: Number(tokens.status(req, res)),
-      responseTime: Number(tokens["response-time"](req, res)),
+  morgan((tokens, req, res) => {
+    const status = Number(tokens.status(req, res)) || 0;
+    const { level, label } = requestOutcome(status);
+    return JSON.stringify({
+      level,
+      message: `${label}  ${tokens.method(req, res)} ${tokens.url(req, res)} -> ${status || "no response"} in ${tokens["response-time"](req, res)} ms`,
       ip: req.ip,
-      userAgent: req.get("user-agent"),
+      user: req.user?.email,
       requestId: req.requestId,
-    }),
+      userAgent: req.get("user-agent"),
+    });
+  },
     {
       skip: (req) => req.path === "/health",
       stream: {
-        write: (message) => logger.http(JSON.parse(message)),
+        write: (line) => {
+          const { level, message, ...meta } = JSON.parse(line);
+          logger.log(level, message, { ...meta, request: true });
+        },
       },
     }
   )
@@ -195,15 +210,18 @@ app.use((err, req, res, next) => {
     });
   }
 
-  logger.error("Request Error:", {
-    requestId: req.requestId,
-    userId: req.user?._id,
-    message: err.message,
-    statusCode: err.statusCode,
-    path: req.originalUrl,
+  // "error" is the real reason; route, IP, user and request id come with it. Refused requests (4xx)
+  // are warnings; only real breakages (5xx) are errors.
+  const status = err.statusCode || 500;
+  logger.log(status >= 500 ? "error" : "warn", `Request failed (${status})`, {
+    error: err.message,
     method: req.method,
+    path: req.originalUrl,
     ip: req.ip,
-    ...(isDev && { stack: err.stack }),
+    user: req.user?.email,
+    requestId: req.requestId,
+    // Unexpected errors (not ones we raised on purpose) always get their stack trace.
+    ...((isDev || !err.isOperational) && { stack: err.stack }),
   });
 
   const message = isDev

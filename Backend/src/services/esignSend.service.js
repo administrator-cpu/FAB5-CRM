@@ -128,7 +128,7 @@ const sendDocuments = async ({ documents, signers, sentBy, logRef }) => {
       });
       sent.push(...docLabels(docType));
     } catch (error) {
-      logger.error("eSign send failed", { ref: logRef, docType, error: error.message });
+      logger.error("eSign not sent", { ref: logRef, document: docLabels(docType).join(" & "), reason: error.message });
       return { requests, sent, failure: { docType: docLabels(docType).join(" & "), message: error.message } };
     }
   }
