@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Send, Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import toast from "react-hot-toast";
 
-// Shared eSign (e-Hastakshar) pieces used by the Signing Documents, RMACD and bulk batch cards.
+// Shared eSign (DIVSign) pieces used by the Signing Documents, RMACD and bulk batch cards.
 // Only shown to admins and the employee managing the customer.
 
 const formatDate = (value) =>
@@ -58,7 +58,7 @@ export const EsignStatusNote = ({ esign }) => (
  * onSend(signers) does the request and resolves truthy on success.
  */
 export const EsignSignerForm = ({ defaultSigner, sendLabel, onSend, description }) => {
-  // Signing order: e-Hastakshar emails each signer only after the one above has signed.
+  // Signing order: DIVSign emails each signer only after the one above has signed.
   const [signers, setSigners] = useState([{ name: defaultSigner?.name || "", email: defaultSigner?.email || "" }]);
   const [isSending, setIsSending] = useState(false);
 
@@ -85,7 +85,7 @@ export const EsignSignerForm = ({ defaultSigner, sendLabel, onSend, description 
 
   return (
     <div className="p-4 border border-sky-200 bg-sky-50/50 rounded-lg">
-      <p className="text-xs font-bold text-gray-700 mb-1">eSign with e-Hastakshar</p>
+      <p className="text-xs font-bold text-gray-700 mb-1">eSign with DIVSign</p>
       <p className="text-[11px] text-gray-500 mb-3">
         Signers sign in this order: signer 1 gets the signing link and OTP by email first, and each next
         signer is emailed only after the one before has signed. {description}

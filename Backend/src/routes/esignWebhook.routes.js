@@ -1,11 +1,11 @@
 const express = require("express");
 const multer = require("multer");
 const AppError = require("../utils/AppError");
-const { verifyEhastakshar, ehastaksharCallback } = require("../controllers/esignWebhook.controller");
+const { verifyDivsign, divsignCallback } = require("../controllers/esignWebhook.controller");
 
 const router = express.Router();
 
-// Signed PDF from e-Hastakshar (multipart field "file"); checked for a real PDF in the controller.
+// Signed PDF from DIVSign (multipart field "file"); checked for a real PDF in the controller.
 const signedPdf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024, files: 1 },
@@ -22,7 +22,8 @@ const receiveSignedPdf = (req, res, next) =>
     next(err);
   });
 
-// Called by e-Hastakshar (server to server), so it uses the shared secret instead of a user login.
-router.post("/webhooks/ehastakshar", verifyEhastakshar, receiveSignedPdf, ehastaksharCallback);
+// Called by DIVSign (server to server), so it uses the shared secret instead of a user login.
+// The address keeps its original name (from before e-Hastakshar became DIVSign); DIVSign is set up to call it.
+router.post("/webhooks/ehastakshar", verifyDivsign, receiveSignedPdf, divsignCallback);
 
 module.exports = router;
