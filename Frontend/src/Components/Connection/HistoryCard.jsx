@@ -158,7 +158,7 @@ function OpportunityDetails() {
 
   const renderDocCard = (label, doc) => {
     if (!doc || !doc.url) return null;
-    // Signed copies that came back from DIVSign rather than a manual upload.
+    // Signed copies that came back from e-Hastakshar rather than a manual upload.
     const esigned = (data?.esignRequests || []).some((request) => request.signedDocument?.url === doc.url
       || (request.parts || []).some((part) => part.signedDocument?.url === doc.url));
     return (

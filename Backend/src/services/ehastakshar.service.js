@@ -3,22 +3,17 @@ const { STORAGE_DRIVERS, resolveLocalPath } = require("../config/storage");
 const { PAGE } = require("../utils/pdfLayout");
 const logger = require("../utils/logger");
 
-// DIVSign (formerly e-Hastakshar) machine API, see their CRM_API_INTEGRATION_GUIDE: one PDF + signers per request.
-
-// Settings are DIVSIGN_*; the old EHASTAKSHAR_* names still work until the servers' .env are renamed.
-const setting = (name) => process.env[`DIVSIGN_${name}`] || process.env[`EHASTAKSHAR_${name}`];
-
-// Set DIVSIGN_API_URL if their API host changes with the new name.
-const API_URL = (setting("API_URL") || "https://api.ehastakshar.in").replace(/\/+$/, "");
+// e-Hastakshar machine API (see their CRM_API_INTEGRATION_GUIDE): one PDF + signers per request.
+const API_URL = (process.env.EHASTAKSHAR_API_URL || "https://api.ehastakshar.in").replace(/\/+$/, "");
 const SEND_PATH = "/api/v1/esign/send";
 const MAX_ATTEMPTS = 3;
 
-// DIVSign stamps every page; a page without a position gets the stamp at its default spot.
+// e-Hastakshar stamps every page; a page without a position gets the stamp at its default spot.
 // pctX / pctY are the stamp's top-left corner as a fraction of the page (0..1, from the top-left).
 const STAMP = { width: 140, height: 70 };
 const STAMP_GAP = 10;
 const DEFAULT_SPOT = { pctX: 0.72, pctY: 0.86 };
-// DIVSign clamps pctX to 0.04..0.72, so a stamp's left edge must stay inside that band.
+// e-Hastakshar clamps pctX to 0.04..0.72, so a stamp's left edge must stay inside that band.
 const X_RANGE = { min: 0.04 * PAGE.width, max: 0.72 * PAGE.width };
 // Signers stand side by side on the signature line, so this many fit across the page.
 const MAX_SIGNERS = 3;
@@ -62,7 +57,7 @@ const signaturePositions = (layout, signerIndex) => {
   return positions;
 };
 
-const isConfigured = () => Boolean(setting("API_KEY"));
+const isConfigured = () => Boolean(process.env.EHASTAKSHAR_API_KEY);
 
 // Reads a stored document (local disk or Cloudinary) into a Buffer.
 const readStoredDocument = async (document) => {
@@ -77,7 +72,7 @@ const readStoredDocument = async (document) => {
 };
 
 /**
- * Sends one PDF to DIVSign for signing. Signers sign in array order: DIVSign emails the
+ * Sends one PDF to e-Hastakshar for signing. Signers sign in array order: e-Hastakshar emails the
  * first one straight away and each next one only after the previous one has signed.
  * Retries on 429 as their guide asks (Retry-After seconds).
  * @param {object} params
@@ -87,12 +82,12 @@ const readStoredDocument = async (document) => {
  * @param {"CAF"|"PO"} params.docType - for logging
  * @param {{name: string, email: string}[]} params.signers - in signing order
  * @param {object} [params.layout] - { signatureBoxes, pageCount } recorded when the PDF was generated
- * @returns {Promise<object>} DIVSign's response ({ transactionId, documentId, status, expiresAt, signers })
+ * @returns {Promise<object>} e-Hastakshar's response ({ transactionId, documentId, status, expiresAt, signers })
  */
 const sendForSigning = async ({ pdf, fileName, title, docType, signers: signerList, layout }) => {
-  if (!isConfigured()) throw new Error("DIVSIGN_API_KEY is not configured");
+  if (!isConfigured()) throw new Error("EHASTAKSHAR_API_KEY is not configured");
 
-  // DIVSign asks for GPS and a webcam photo on every signature.
+  // e-Hastakshar asks for GPS and a webcam photo on every signature.
   const signers = signerList.map((signer, index) => ({
     name: signer.name,
     email: signer.email,
@@ -106,12 +101,12 @@ const sendForSigning = async ({ pdf, fileName, title, docType, signers: signerLi
     form.append("file", new Blob([pdf], { type: "application/pdf" }), fileName);
     form.append("title", title);
     form.append("signers", JSON.stringify(signers));
-    // Where DIVSign posts the signed PDF once every signer is done (esignWebhook.controller).
-    if (setting("CALLBACK_URL")) form.append("callbackUrl", setting("CALLBACK_URL"));
+    // Where e-Hastakshar posts the signed PDF once every signer is done (esignWebhook.controller).
+    if (process.env.EHASTAKSHAR_CALLBACK_URL) form.append("callbackUrl", process.env.EHASTAKSHAR_CALLBACK_URL);
 
     const response = await fetch(`${API_URL}${SEND_PATH}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${setting("API_KEY")}` },
+      headers: { Authorization: `Bearer ${process.env.EHASTAKSHAR_API_KEY}` },
       body: form,
     });
 
@@ -123,15 +118,15 @@ const sendForSigning = async ({ pdf, fileName, title, docType, signers: signerLi
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      logger.error("DIVSign send failed", { status: response.status, docType, response: data });
-      // Their own message, prefixed so it's clear it came from DIVSign and with which status.
-      const error = new Error(`DIVSign returned ${response.status}${data.message ? `: ${data.message}` : ""}`);
+      logger.error("e-Hastakshar send failed", { status: response.status, docType, response: data });
+      // Their own message, prefixed so it's clear it came from e-Hastakshar and with which status.
+      const error = new Error(`e-Hastakshar returned ${response.status}${data.message ? `: ${data.message}` : ""}`);
       error.statusCode = response.status;
       throw error;
     }
     return data;
   }
-  throw new Error("DIVSign rate limit: please try again in a moment");
+  throw new Error("e-Hastakshar rate limit: please try again in a moment");
 };
 
-module.exports = { MAX_SIGNERS, setting, isConfigured, readStoredDocument, sendForSigning, signaturePositions };
+module.exports = { MAX_SIGNERS, isConfigured, readStoredDocument, sendForSigning, signaturePositions };
