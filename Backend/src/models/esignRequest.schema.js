@@ -9,7 +9,7 @@ const SignatureBoxSchema = new mongoose.Schema({
   width: Number,
 }, { _id: false });
 
-// One document sent to e-Hastakshar for signing (on a connection or a bulk batch), newest last.
+// One document sent to DIVSign for signing (on a connection or a bulk batch), newest last.
 // Sending a document again adds a new entry.
 const EsignRequestSchema = new mongoose.Schema({
   // CAF_PO: the CAF and PO joined into one PDF so the customer signs once (see parts).
@@ -31,10 +31,10 @@ const EsignRequestSchema = new mongoose.Schema({
   ],
   // RMACD requests: the rmacdForms entry this was sent for.
   rmacdFormId: { type: mongoose.Schema.Types.ObjectId },
-  provider: { type: String, default: "ehastakshar" },
+  provider: { type: String, default: "divsign" },
   documentId: String,
   transactionId: String,
-  // Signers in signing order; e-Hastakshar emails each one after the previous one has signed.
+  // Signers in signing order; DIVSign emails each one after the previous one has signed.
   signers: [
     {
       _id: false,
@@ -48,14 +48,14 @@ const EsignRequestSchema = new mongoose.Schema({
   signerId: String,
   signerName: String,
   signerEmail: String,
-  // PENDING when sent; COMPLETED once every signer has signed (set by the e-Hastakshar callback),
+  // PENDING when sent; COMPLETED once every signer has signed (set by the DIVSign callback),
   // or whatever final status they report (DECLINED, EXPIRED, …).
   status: { type: String, default: "PENDING" },
   expiresAt: Date,
   sentBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   sentAt: { type: Date, default: Date.now },
   completedAt: Date,
-  // Signed PDF received from e-Hastakshar; also applied as the official signed copy while it can still change.
+  // Signed PDF received from DIVSign; also applied as the official signed copy while it can still change.
   signedDocument: {
     fileName: String,
     url: String,

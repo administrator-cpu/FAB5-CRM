@@ -9,7 +9,7 @@ const { uploadDocument } = require("../services/upload.service");
 const { createGeneratedCaf } = require("../services/caf.service");
 const { createGeneratedPo } = require("../services/po.service");
 const { createGeneratedRmacd } = require("../services/rmacd.service");
-const ehastakshar = require("../services/ehastakshar.service");
+const divsign = require("../services/divsign.service");
 const { buildIps, expectedMrc } = require("../utils/ipCost");
 const {
   hasSignedDocuments, areSignedDocumentsLocked, applySignedDocuments, currentRmacdForm, isRmacdFormOpen,
@@ -1954,11 +1954,11 @@ const uploadSignedDocuments = asyncHandler(async (req, res, next) => {
   });
 });
 
-// Sends the generated (unsigned) CAF and/or PO of a new order to e-Hastakshar, which emails the
+// Sends the generated (unsigned) CAF and/or PO of a new order to DIVSign, which emails the
 // signers a signing link one after another, in the order given. Already-signed documents are skipped;
-// the signed copy comes back through the e-Hastakshar callback (esignWebhook.controller).
+// the signed copy comes back through the DIVSign callback (esignWebhook.controller).
 const sendForEsign = asyncHandler(async (req, res, next) => {
-  if (!ehastakshar.isConfigured()) return next(esignSend.notConfiguredError());
+  if (!divsign.isConfigured()) return next(esignSend.notConfiguredError());
 
   const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
   if (!connection) return next(new AppError("Connection not found", 404));
@@ -2015,7 +2015,7 @@ const sendForEsign = asyncHandler(async (req, res, next) => {
     });
     await connection.save();
     ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: connection._id });
-    logger.info("Documents sent for eSign", { opportunityId: connection.opportunityId, documents: outcome.sent, by: req.user._id });
+    logger.info("✓ Documents sent for eSign", { opportunityId: connection.opportunityId, documents: outcome.sent, by: req.user._id });
   }
   if (outcome.failure) return next(esignSend.failureError(outcome));
 
@@ -2029,7 +2029,7 @@ const sendForEsign = asyncHandler(async (req, res, next) => {
 // Sends the RMACD form of the connection's current upgrade / downgrade / shifting request for eSign.
 // Like the manual upload, only until that request is approved.
 const sendRmacdForEsign = asyncHandler(async (req, res, next) => {
-  if (!ehastakshar.isConfigured()) return next(esignSend.notConfiguredError());
+  if (!divsign.isConfigured()) return next(esignSend.notConfiguredError());
 
   const connection = await Connection.findOne({ _id: req.params.id, status: { $ne: "Deleted" } });
   if (!connection) return next(new AppError("Connection not found", 404));
@@ -2074,7 +2074,7 @@ const sendRmacdForEsign = asyncHandler(async (req, res, next) => {
   });
   await connection.save();
   ioHelper.broadcastChange("connections_mutated", { action: "UPDATE", id: connection._id });
-  logger.info("RMACD sent for eSign", { opportunityId: connection.opportunityId, requestType: form.requestType, by: req.user._id });
+  logger.info("✓ RMACD sent for eSign", { opportunityId: connection.opportunityId, requestType: form.requestType, by: req.user._id });
 
   res.status(200).json({
     success: true,

@@ -1,4 +1,4 @@
-const ehastakshar = require("./ehastakshar.service");
+const divsign = require("./divsign.service");
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 const { combinePdfs } = require("../utils/pdfCombine");
@@ -6,15 +6,15 @@ const { combinePdfs } = require("../utils/pdfCombine");
 // Shared by every "Send for eSign" endpoint (new connection CAF / PO, RMACD form, bulk batch CAF / PO).
 
 /**
- * Validates the signers from a request body, in signing order: e-Hastakshar emails signer 2 only
+ * Validates the signers from a request body, in signing order: DIVSign emails signer 2 only
  * after signer 1 has signed, and so on.
  * @returns {{signers: {name: string, email: string}[], error?: AppError}}
  */
 const parseSigners = (body) => {
   const raw = Array.isArray(body?.signers) ? body.signers : [];
   if (raw.length === 0) return { error: new AppError("Add at least one signer", 400) };
-  if (raw.length > ehastakshar.MAX_SIGNERS) {
-    return { error: new AppError(`You can add up to ${ehastakshar.MAX_SIGNERS} signers`, 400) };
+  if (raw.length > divsign.MAX_SIGNERS) {
+    return { error: new AppError(`You can add up to ${divsign.MAX_SIGNERS} signers`, 400) };
   }
   const signers = raw.map((signer) => ({
     name: String(signer?.name || "").trim(),
@@ -72,11 +72,11 @@ const docLabels = (docType) => (docType === "CAF_PO" ? ["CAF", "PO"] : [docType]
 // The PDF, stamp layout and (for combined documents) parts to send for one document entry.
 const preparePdf = async ({ generated, components }) => {
   if (!components) {
-    return { pdf: await ehastakshar.readStoredDocument(generated), layout: generated, fileName: generated.fileName };
+    return { pdf: await divsign.readStoredDocument(generated), layout: generated, fileName: generated.fileName };
   }
   const combined = await combinePdfs(await Promise.all(components.map(async ({ docType, generated: doc }) => ({
     docType,
-    pdf: await ehastakshar.readStoredDocument(doc),
+    pdf: await divsign.readStoredDocument(doc),
     layout: doc,
   }))));
   return { ...combined, fileName: null };
@@ -101,7 +101,7 @@ const sendDocuments = async ({ documents, signers, sentBy, logRef }) => {
     const { docType, title, fallbackName, extra } = document;
     try {
       const { pdf, layout, parts, fileName } = await preparePdf(document);
-      const result = await ehastakshar.sendForSigning({
+      const result = await divsign.sendForSigning({
         pdf,
         fileName: fileName || fallbackName,
         title,
@@ -117,7 +117,7 @@ const sendDocuments = async ({ documents, signers, sentBy, logRef }) => {
         transactionId: result.transactionId,
         signers: signers.map((signer, index) => ({
           order: index + 1,
-          // Matched by email in case e-Hastakshar returns them in another order.
+          // Matched by email in case DIVSign returns them in another order.
           signerId: result.signers?.find((s) => String(s.email).toLowerCase() === signer.email)?.id,
           ...signer,
         })),
@@ -128,7 +128,7 @@ const sendDocuments = async ({ documents, signers, sentBy, logRef }) => {
       });
       sent.push(...docLabels(docType));
     } catch (error) {
-      logger.error("eSign send failed", { ref: logRef, docType, error: error.message });
+      logger.error("eSign not sent", { ref: logRef, document: docLabels(docType).join(" & "), reason: error.message });
       return { requests, sent, failure: { docType: docLabels(docType).join(" & "), message: error.message } };
     }
   }
@@ -145,7 +145,7 @@ const successMessage = (sent, signers) => (signers.length > 1
   ? `${sent.join(" & ")} sent for eSign to ${signers.length} signers; ${signers[0].email} signs first`
   : `${sent.join(" & ")} sent for eSign to ${signers[0].email}`);
 
-const notConfiguredError = () => new AppError("eSign is not set up yet (EHASTAKSHAR_API_KEY is missing)", 503);
+const notConfiguredError = () => new AppError("eSign is not set up yet (DIVSIGN_API_KEY is missing)", 503);
 
 module.exports = {
   parseSigners, signerSummary, cafPoDocuments, sendDocuments, failureError, successMessage, notConfiguredError,
