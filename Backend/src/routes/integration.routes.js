@@ -6,6 +6,7 @@ const {
 } = require("../controllers/invoiceIntegration.controller");
 
 const { syncConnections, syncCustomers } = require("../controllers/ledgerlySync.controller");
+const { listConnectionsForBahiKhata } = require("../controllers/connectionsIntegration.controller");
 const { requireLedgerlyKey } = require("../middlewares/ledgerlyAuth.middleware");
 const { safeCompare } = require("../utils/security");
 
@@ -24,6 +25,8 @@ router.get("/sync/connections", requireLedgerlyKey, syncConnections);
 router.get("/sync/customers", requireLedgerlyKey, syncCustomers);
 
 router.get("/customers", protectInternal, searchCustomersForInvoice);
+// Bahi Khata: every connection ever activated, paged by updatedAt (for telco bill matching)
+router.get("/connections", protectInternal, listConnectionsForBahiKhata);
 router.get("/connections/check/:opportunityId", protectInternal, checkOpportunityExists);
 router.get("/customers/:id", protectInternal, getCustomerProfileForInvoice);
 router.get("/customers/:id/connections", protectInternal, getCustomerConnectionsForInvoice);

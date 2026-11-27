@@ -213,6 +213,7 @@ const startRateRevisionJob = () => {
             note: `Rate Revision Applied Automatically. (MRC: ₹${formattedOldMrc} → ₹${formattedNewMrc})`,
             commercials: connection.commercials,
             bandwidth: connection.bandwidth,
+            telecoCircuitId: connection.telecoCircuitId || undefined,
             serviceType: connection.serviceType,
             ips: connection.ips,
             providerCost: { mrc: connection.providerCost?.mrc, ratePerMb: connection.providerCost?.ratePerMb },

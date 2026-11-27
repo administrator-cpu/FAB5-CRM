@@ -32,6 +32,7 @@ const MAX_EXTENSION_DAYS = 31;
 const buildHistorySnapshot = (connection) => ({
   serviceType: connection.serviceType,
   bandwidth: connection.bandwidth,
+  telecoCircuitId: connection.telecoCircuitId || undefined,
   technicalDetails: connection.technicalDetails,
   commercials: connection.commercials,
   ips: connection.ips,

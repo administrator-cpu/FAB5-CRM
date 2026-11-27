@@ -673,6 +673,8 @@ const activeBulkConnectionTemplate = asyncHandler(async (req, res, next) => {
     { header: "Advance(Optional)", key: "advance", width: 10 },
     { header: "IP Count(Optional)", key: "ipCount", width: 10 },
     { header: "IP Cost(Optional)", key: "ipCost", width: 10 },
+    // What the telco charges us per Mbps; saved as the connection's provider cost.
+    { header: "Telco Rate per MB(Optional)", key: "telcoRate", width: 14 },
   ];
 
   worksheet.columns.forEach(col => col.protection = { locked: false });
@@ -767,6 +769,7 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
       advance: parseFloat(row.getCell(14).value) || 0,
       ipCount: parseInt(row.getCell(15).value) || 0,
       ipCost: parseFloat(row.getCell(16).value) || 0,
+      telcoRate: parseFloat(row.getCell(17).value) || 0,
     };
 
     const errors = [];
@@ -840,6 +843,8 @@ const previewActiveBulkConnections = asyncHandler(async (req, res, next) => {
           mrc: record.mrc || calculatedMrc, ratePerMb: record.rpm, otc: record.otc, advance: record.advance
         },
         ips: buildIps({ count: record.ipCount, totalCost: ipTotalCost, perIpCost: ipPerIpCost }),
+        // Telco rate from the optional column; the commit works out the provider MRC.
+        providerCost: record.telcoRate > 0 ? { ratePerMb: record.telcoRate } : undefined,
         status: "Active",
         acceptanceDate: new Date(),
         history: [{
@@ -897,6 +902,17 @@ const commitActiveBulkConnections = asyncHandler(async (req, res, next) => {
       return null;
     }
 
+    // Telco rate (optional column): provider MRC = bandwidth × rate + IP total, as in updateProviderCost.
+    const telcoRate = amount(conn.providerCost?.ratePerMb);
+    if (!Number.isFinite(telcoRate) || telcoRate < 0) {
+      rowErrors.push(`${label}: telco rate must be zero or more`);
+      return null;
+    }
+    const ips = buildIps({ count: conn.ips?.count, totalCost: conn.ips?.cost, perIpCost: conn.ips?.perIpCost || undefined });
+    const providerCost = telcoRate > 0
+      ? { ratePerMb: telcoRate, mrc: telcoRate * (Number(conn.bandwidth) || 0) + (Number(ips?.cost) || 0), updatedAt: new Date() }
+      : undefined;
+
     const billingProfileId = (customer.billingProfile || []).some((p) => String(p._id) === String(conn.billingProfileId))
       ? conn.billingProfileId
       : null;
@@ -919,7 +935,8 @@ const commitActiveBulkConnections = asyncHandler(async (req, res, next) => {
         telcoProvider: provider || undefined,
       },
       commercials,
-      ips: buildIps({ count: conn.ips?.count, totalCost: conn.ips?.cost, perIpCost: conn.ips?.perIpCost || undefined }),
+      ips,
+      providerCost,
       status: "Active",
       acceptanceDate: new Date(),
       history: [{
@@ -928,6 +945,9 @@ const commitActiveBulkConnections = asyncHandler(async (req, res, next) => {
         note: "Migrated via Bulk Admin Upload",
         serviceType: conn.serviceType,
         bandwidth: text(conn.bandwidth),
+        telecoCircuitId: text(conn.telecoCircuitId) || undefined,
+        // The telco rate goes on the activation entry too, where reports look for it.
+        ...(providerCost && { providerCost: { mrc: providerCost.mrc, ratePerMb: providerCost.ratePerMb } }),
       }],
     };
   });

@@ -29,12 +29,23 @@ const { canAccessConnection, withoutProviderCost } = require("../utils/access");
 const buildSnapshot = (connection) => ({
   serviceType: connection.serviceType,
   bandwidth: connection.bandwidth,
+  telecoCircuitId: connection.telecoCircuitId || undefined,
   technicalDetails: connection.technicalDetails,
   commercials: connection.commercials,
   ips: connection.ips,
   providerCost: { mrc: connection.providerCost?.mrc, ratePerMb: connection.providerCost?.ratePerMb },
   terminationDetails: connection.terminationDetails || {},
 });
+
+// The telco rate a live connection runs on: the one saved with its last activation or, when that is
+// 0 (IP additions used to wipe it), the latest history entry that still has a real rate. Null if none.
+const lastProviderCost = (history, lastActivation) => {
+  const hasRate = (entry) => Number(entry?.providerCost?.ratePerMb) > 0;
+  const entry = hasRate(lastActivation) ? lastActivation : [...history].reverse().find(hasRate);
+  if (!entry) return null;
+  const { mrc, ratePerMb } = entry.providerCost;
+  return { mrc, ratePerMb, updatedAt: new Date() };
+};
 
 const getRequestType = (historyArray) => {
   const recentHistory = [...historyArray].reverse();
@@ -689,6 +700,10 @@ const activateConnection = asyncHandler(async (req, res, next) => {
     year: "numeric",
   });
 
+  // A re-activation (after an upgrade, shift or IP addition) may carry a different ID; note the old one.
+  const previousCircuitId = connection.telecoCircuitId;
+  const circuitIdChanged = Boolean(previousCircuitId) && previousCircuitId !== telecoCircuitId.trim();
+
   connection.status = "Active";
   connection.telecoCircuitId = telecoCircuitId.trim();
   connection.acceptanceDate = new Date(acceptanceDate);
@@ -701,7 +716,9 @@ const activateConnection = asyncHandler(async (req, res, next) => {
     action: "ACTIVATED",
     performedBy: req.user._id,
     date: new Date(acceptanceDate),
-    note: `Activated on ${formattedDate}`,
+    note: circuitIdChanged
+      ? `Activated on ${formattedDate}. Telco Circuit ID changed: ${previousCircuitId} → ${connection.telecoCircuitId}`
+      : `Activated on ${formattedDate}`,
     ...buildSnapshot(connection),
   });
 
@@ -1028,6 +1045,9 @@ const cancelConnection = asyncHandler(async (req, res, next) => {
       connection.bandwidth = lastActiveSnapshot.bandwidth;
       connection.serviceType = lastActiveSnapshot.serviceType;
       connection.commercials = lastActiveSnapshot.commercials;
+      // The telco rate was reset to 0 when the change was raised: put back the one the link runs on.
+      const providerCost = lastProviderCost(connection.history, lastActiveSnapshot);
+      if (providerCost) connection.providerCost = providerCost;
       // Undo a pending IP addition along with its MRC.
       if (lastActiveSnapshot.ips) {
         const { count, cost, perIpCost } = lastActiveSnapshot.ips;
@@ -1282,6 +1302,14 @@ const addIp = asyncHandler(async (req, res, next) => {
     requestType: "IP_ADDITION"
   });
 
+  // Extra IPs don't change the telco link, so its rate stays; only the provider MRC follows the new IP
+  // total (worked out as in updateProviderCost). It used to be reset to 0, and IP additions skip the
+  // "enter provider cost" step, so the connection went live again with no telco rate.
+  const providerRate = Number(connection.providerCost?.ratePerMb) || 0;
+  if (providerRate > 0) {
+    connection.providerCost = { ratePerMb: providerRate, mrc: providerRate * bandwidthMb + newTotalCost, updatedAt: new Date() };
+  }
+
   connection.status = "Pending";
   connection.isIpAdditionRequest = true;
   connection.history.push({
@@ -1291,7 +1319,6 @@ const addIp = asyncHandler(async (req, res, next) => {
     note: `Adding ${addedCount} IPs (₹${addedCost}). Total IPs will be ${newTotalCount} at ₹${newTotalCost}. MRC ₹${oldMrc} → ₹${newMrc}.`,
     ...buildSnapshot(connection),
   });
-  connection.providerCost = { mrc: 0, otc: 0, ratePerMb: 0 };
   await connection.save();
 
   if (global.ioHelper) {
