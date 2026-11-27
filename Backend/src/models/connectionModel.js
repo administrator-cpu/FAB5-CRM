@@ -38,6 +38,8 @@ const HistoryEntrySchema = new mongoose.Schema({
 
   serviceType: { type: String, enum: ["DNC", "Mix", "ILL", "Peering", "IP"], },
   bandwidth: { type: String },
+  // The Telco Circuit ID at the time of the entry, so a later change doesn't lose the old one.
+  telecoCircuitId: { type: String, trim: true },
   technicalDetails: {
     aEnd: {
       btsId: { type: String, trim: true },

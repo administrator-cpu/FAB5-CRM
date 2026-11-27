@@ -14,10 +14,16 @@ const QuickActions = ({
   onCancel,
   onDelete 
 }) => {
-  const [circuitId, setCircuitId] = useState({ 
-    telecoCircuitId: "", 
-    acceptanceDate: new Date().toISOString().split('T')[0] 
+  // telecoCircuitId stays null until something is typed, so a re-activation (after an upgrade, shift
+  // or IP addition) shows the connection's current Telco Circuit ID instead of an empty box.
+  const [circuitInput, setCircuitId] = useState({
+    telecoCircuitId: null,
+    acceptanceDate: new Date().toISOString().split('T')[0]
   });
+  const circuitId = {
+    ...circuitInput,
+    telecoCircuitId: circuitInput.telecoCircuitId ?? (connection?.telecoCircuitId || ""),
+  };
   
   const [genPrice, setGenPrice] = useState("");
   const { id, cid } = useParams();
